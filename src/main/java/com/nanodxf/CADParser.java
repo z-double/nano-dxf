@@ -16,11 +16,10 @@ import java.nio.file.Path;
  * <ol>
  *   <li>打开 DXFReader（自动编码检测），驱动 group code 流</li>
  *   <li>识别 SECTION 边界，通过 {@link SectionDispatcher} 分发到各段解析器</li>
- *   <li>汇总 DXFContext 中的实体、错误、元数据，组装 {@link ParseResult}</li>
+ *   <li>汇总 DXFContext 中的实体、错误、跳过类型、元数据，组装 {@link ParseResult}</li>
  * </ol>
  *
- * <p>线程安全：每次 {@code parse()} 创建独立的 {@link DXFContext}，无共享可变状态，
- * 多线程并发解析不同文件时各自使用独立实例即可。
+ * <p>线程安全：每次 {@code parse()} 创建独立的 {@link DXFContext}，无共享可变状态。
  *
  * <pre>{@code
  * ParseConfig config = ParseConfig.builder()
@@ -30,6 +29,7 @@ import java.nio.file.Path;
  *
  * ParseResult result = new CADParser(config).parse(Paths.get("drawing.dxf"));
  * List<CADEntity> entities = result.getEntities();
+ * result.getErrors().forEach(System.err::println);
  * }</pre>
  */
 public class CADParser {
@@ -46,14 +46,14 @@ public class CADParser {
         this(ParseConfig.defaults());
     }
 
-    /** 解析 DXF 文件（自动检测编码）。 */
+    /** 解析 DXF 文件（自动检测编码，支持 GBK / UTF-8）。 */
     public ParseResult parse(Path path) throws IOException {
         try (DXFReader reader = DXFReader.open(path)) {
             return doParse(reader);
         }
     }
 
-    /** 从 Reader 解析，常用于单元测试（传入 StringReader）。 */
+    /** 从 Reader 解析（常用于单元测试，传入 StringReader）。 */
     public ParseResult parse(Reader input) throws IOException {
         try (DXFReader reader = DXFReader.of(input)) {
             return doParse(reader);
@@ -64,13 +64,12 @@ public class CADParser {
         long startMs = System.currentTimeMillis();
         DXFContext ctx = new DXFContext(config);
 
-        // 若调用方明确指定 CRS，写入元数据并标注来源
         if (config.getCrs() != null) {
             ctx.metadata.setCrs(config.getCrs());
             ctx.metadata.setCrsSource("caller_specified");
         }
 
-        // 驱动 group code 流：扫描 SECTION 边界，分发到对应 section 解析器
+        // 驱动 group code 流，按 SECTION 边界分发
         while (reader.hasNext()) {
             GroupCodePair pair = reader.next();
             if (pair == null) break;
@@ -80,19 +79,24 @@ public class CADParser {
                     dispatcher.dispatch(namePair.value(), reader, ctx);
                 }
             }
-            // 其他顶层 code（如 0 EOF）直接跳过
         }
 
         long elapsed = System.currentTimeMillis() - startMs;
-        int entityCount = ctx.entities.size();
-        long errorCount = ctx.entities.stream()
-                .filter(e -> e.geometry() == null).count(); // 几何为 null 视为解析异常
+        int entityCount  = ctx.entities.size();
+        int warnCount    = (int) ctx.errors.stream()
+                .filter(e -> e.getLevel() == ParseErrorLevel.WARN).count();
+
+        // 未注册实体类型记录为 INFO 级别
+        ctx.skippedEntityTypes.forEach(type ->
+            ctx.errors.add(new ParseError(ParseErrorLevel.INFO, type, "",
+                "未注册的实体类型，已跳过")));
 
         ParseResult.Builder builder = ParseResult.builder()
                 .metadata(ctx.metadata)
-                .stats(new ParseStats(elapsed, entityCount, (int) errorCount, 0));
+                .stats(new ParseStats(elapsed, entityCount, warnCount, 0));
 
         ctx.entities.forEach(builder::addEntity);
+        ctx.errors.forEach(builder::addError);
 
         return builder.build();
     }
