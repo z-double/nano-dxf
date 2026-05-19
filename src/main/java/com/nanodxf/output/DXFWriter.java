@@ -262,23 +262,20 @@ public class DXFWriter {
     }
 
     private void writeR2000Tables(LineWriter w, Set<String> layers, int[] lyH) throws IOException {
-        // 预留 VPORT / APPID 句柄（紧跟图层句柄分配区）
-        // lyH[0] 从 0x10 起，VPORT/APPID 表和记录用更高段句柄避免冲突
         pair(w, 0, "SECTION"); pair(w, 2, "TABLES");
 
-        // BLOCK_RECORD 表（*Model_Space + *Paper_Space）
-        pair(w, 0, "TABLE"); pair(w, 2, "BLOCK_RECORD");
-        pair(w, 5, H_BR_TABLE);
-        pair(w, 330, "0");
-        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "0"); // 0 = 与参考文件一致
-        writeBlockRecord(w, H_MS_BR, "*Model_Space");
-        writeBlockRecord(w, H_PS_BR, "*Paper_Space");
+        // DXF 规范：BLOCK_RECORD 必须是 TABLES 段的最后一张表，其余顺序如下：
+        // VPORT → LTYPE → LAYER → STYLE → APPID → BLOCK_RECORD
+
+        // VPORT 表（空，需要存在）
+        pair(w, 0, "TABLE"); pair(w, 2, "VPORT");
+        pair(w, 5, "E0"); pair(w, 330, "0");
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "0");
         pair(w, 0, "ENDTAB");
 
         // LTYPE 表
         pair(w, 0, "TABLE"); pair(w, 2, "LTYPE");
-        pair(w, 5, H_LT_TABLE);
-        pair(w, 330, "0");                        // ← owner = root
+        pair(w, 5, H_LT_TABLE); pair(w, 330, "0");
         pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "1");
         pair(w, 0, "LTYPE"); pair(w, 5, H_LT_CONT);
         pair(w, 330, H_LT_TABLE);
@@ -289,8 +286,7 @@ public class DXFWriter {
 
         // LAYER 表
         pair(w, 0, "TABLE"); pair(w, 2, "LAYER");
-        pair(w, 5, H_LY_TABLE);
-        pair(w, 330, "0");                        // ← owner = root
+        pair(w, 5, H_LY_TABLE); pair(w, 330, "0");
         pair(w, 100, "AcDbSymbolTable");
         pair(w, 70, String.valueOf(layers.size()));
         for (String l : layers) {
@@ -298,14 +294,13 @@ public class DXFWriter {
             pair(w, 330, H_LY_TABLE);
             pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbLayerTableRecord");
             pair(w, 2, l); pair(w, 70, "0"); pair(w, 62, "7"); pair(w, 6, "Continuous");
-            pair(w, 370, "-3");                   // ← 默认线宽（参考文件有此项）
+            pair(w, 370, "-3");
         }
         pair(w, 0, "ENDTAB");
 
         // STYLE 表
         pair(w, 0, "TABLE"); pair(w, 2, "STYLE");
-        pair(w, 5, H_ST_TABLE);
-        pair(w, 330, "0");                        // ← owner = root
+        pair(w, 5, H_ST_TABLE); pair(w, 330, "0");
         pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "1");
         pair(w, 0, "STYLE"); pair(w, 5, H_ST_STD);
         pair(w, 330, H_ST_TABLE);
@@ -315,20 +310,21 @@ public class DXFWriter {
         pair(w, 71, "0"); pair(w, 42, fmt(2.5)); pair(w, 3, "txt"); pair(w, 4, "");
         pair(w, 0, "ENDTAB");
 
-        // VPORT 表（空，R2000 需要存在）
-        pair(w, 0, "TABLE"); pair(w, 2, "VPORT");
-        pair(w, 5, "E0"); pair(w, 330, "0");
-        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "0");
-        pair(w, 0, "ENDTAB");
-
-        // APPID 表（注册 ACAD 应用名，R2000 XDATA 必须）
+        // APPID 表
         pair(w, 0, "TABLE"); pair(w, 2, "APPID");
         pair(w, 5, "E1"); pair(w, 330, "0");
         pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "1");
-        pair(w, 0, "APPID"); pair(w, 5, "E2");
-        pair(w, 330, "E1");
+        pair(w, 0, "APPID"); pair(w, 5, "E2"); pair(w, 330, "E1");
         pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbRegAppTableRecord");
         pair(w, 2, "ACAD"); pair(w, 70, "0");
+        pair(w, 0, "ENDTAB");
+
+        // BLOCK_RECORD 表 ← 必须最后（DXF 规范强制要求）
+        pair(w, 0, "TABLE"); pair(w, 2, "BLOCK_RECORD");
+        pair(w, 5, H_BR_TABLE); pair(w, 330, "0");
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "0");
+        writeBlockRecord(w, H_MS_BR, "*Model_Space");
+        writeBlockRecord(w, H_PS_BR, "*Paper_Space");
         pair(w, 0, "ENDTAB");
 
         pair(w, 0, "ENDSEC");
