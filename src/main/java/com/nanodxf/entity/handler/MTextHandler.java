@@ -1,4 +1,4 @@
-﻿package com.nanodxf.entity.handler;
+package com.nanodxf.entity.handler;
 
 import java.util.List;
 

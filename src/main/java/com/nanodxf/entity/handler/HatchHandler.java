@@ -1,4 +1,4 @@
-﻿package com.nanodxf.entity.handler;
+package com.nanodxf.entity.handler;
 
 import com.nanodxf.core.GroupCodePair;
 import com.nanodxf.entity.CADEntity;

@@ -1,4 +1,4 @@
-﻿package com.nanodxf.entity.handler;
+package com.nanodxf.entity.handler;
 
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
