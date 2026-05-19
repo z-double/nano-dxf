@@ -82,18 +82,19 @@ public class CADParser {
         }
 
         long elapsed = System.currentTimeMillis() - startMs;
-        int entityCount  = ctx.entities.size();
-        int warnCount    = (int) ctx.errors.stream()
+        int entityCount = ctx.entities.size();
+        int errorCount  = (int) ctx.errors.stream()
                 .filter(e -> e.getLevel() == ParseErrorLevel.WARN).count();
 
-        // 未注册实体类型记录为 INFO 级别
+        // 未注册实体类型记录为 INFO 级别（在 errorCount 之后计算，不混入 error 计数）
         ctx.skippedEntityTypes.forEach(type ->
             ctx.errors.add(new ParseError(ParseErrorLevel.INFO, type, "",
                 "未注册的实体类型，已跳过")));
+        int infoCount = ctx.skippedEntityTypes.size();
 
         ParseResult.Builder builder = ParseResult.builder()
                 .metadata(ctx.metadata)
-                .stats(new ParseStats(elapsed, entityCount, warnCount, 0));
+                .stats(new ParseStats(elapsed, entityCount, errorCount, infoCount));
 
         ctx.entities.forEach(builder::addEntity);
         ctx.errors.forEach(builder::addError);

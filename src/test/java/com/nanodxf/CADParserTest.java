@@ -23,7 +23,8 @@ import static org.assertj.core.api.Assertions.*;
  *
  * <p>Phase 1：HEADER 解析、ParseConfig 校验、LINE/CIRCLE/POINT/LWPOLYLINE
  * Phase 2：MTEXT 清洗、POLYLINE、INSERT+ATTRIB、HATCH（含洞）、3DFACE
- * Phase 3：XDATA 地物编码、颜色富化（ACI/True Color）、GeoJsonSerializer、错误收集
+ * Phase 3：XDATA 地物编码、颜色富化（ACI/True Color/BYLAYER）、GeoJsonSerializer、错误收集
+ * Phase 4：容错（截断/循环块/未知 SECTION/零长度线）、性能基线
  */
 class CADParserTest {
 
@@ -350,6 +351,27 @@ class CADParserTest {
         assertThat(e.getProperties()).doesNotContainKey("colorAci");
     }
 
+    @Test
+    void parseEntityByLayerColor_shouldInheritLayerAciAsRgb() throws Exception {
+        // 图层 "道路" 颜色 ACI=1 (红色)，实体无显式颜色（code 62 = 256 表示 BYLAYER）
+        String dxf =
+            "  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nTABLES\n" +
+            "  0\nTABLE\n  2\nLAYER\n" +
+            "  0\nLAYER\n  2\n道路\n 62\n1\n  6\nContinuous\n" +
+            "  0\nENDTAB\n" +
+            "  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nENTITIES\n" +
+            "  0\nLINE\n  8\n道路\n" +
+            " 10\n0\n 20\n0\n 30\n0\n 11\n10\n 21\n0\n 31\n0\n" +
+            "  0\nENDSEC\n  0\nEOF\n";
+
+        CADEntity e = single(dxf);
+        // BYLAYER 继承：图层 ACI 1 → RGB [255, 0, 0]
+        assertThat((int[]) e.getProperties().get("colorRgb")).containsExactly(255, 0, 0);
+        assertThat(e.getProperties()).doesNotContainKey("colorAci");
+    }
+
     // =========================================================================
     // Phase 3：GeoJsonSerializer
     // =========================================================================
@@ -421,5 +443,109 @@ class CADParserTest {
         ParseResult result = new CADParser().parse(new StringReader(dxf));
         assertThat(result.getStats().entityCount()).isEqualTo(2);
         assertThat(result.getStats().parseMs()).isGreaterThanOrEqualTo(0);
+    }
+
+    // =========================================================================
+    // Phase 4：容错（边界情况）与性能基线
+    // =========================================================================
+
+    @Test
+    void truncatedFile_missingEndsecAndEof_shouldReturnParsedEntities() throws Exception {
+        // 文件在 ENTITIES 段内突然截断，无 ENDSEC 也无 EOF
+        String dxf =
+            "  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nENTITIES\n" +
+            "  0\nLINE\n  8\n0\n 10\n0\n 20\n0\n 30\n0\n 11\n10\n 21\n0\n 31\n0\n";
+        ParseResult result = new CADParser().parse(new StringReader(dxf));
+        // 不能抛出异常；截断前的完整 LINE 应被解析
+        assertThat(result.getEntities()).hasSize(1);
+        assertThat(result.getEntities().get(0).getType()).isEqualTo("LINE");
+    }
+
+    @Test
+    void truncatedFile_midEntity_shouldNotThrow() throws Exception {
+        // 文件在第二个实体中途截断（只有起点坐标，无终点）
+        String dxf =
+            "  0\nSECTION\n  2\nENTITIES\n" +
+            "  0\nLINE\n  8\n0\n 10\n0\n 20\n0\n 30\n0\n 11\n10\n 21\n0\n 31\n0\n" +
+            "  0\nLINE\n  8\n0\n 10\n999\n 20\n999\n"; // 文件在此截断
+        // 不能抛出异常；至少第一条完整 LINE 应被解析
+        ParseResult result = new CADParser().parse(new StringReader(dxf));
+        assertThat(result.getEntities()).isNotEmpty();
+        assertThat(result.getEntities().get(0).getType()).isEqualTo("LINE");
+    }
+
+    @Test
+    void circularBlockReference_shouldDetectCycleAndFallbackToPoint() throws Exception {
+        // BLK_A 包含 BLK_B 的 INSERT，BLK_B 包含 BLK_A 的 INSERT（A→B→A 循环）
+        String dxf =
+            "  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nBLOCKS\n" +
+            "  0\nBLOCK\n  2\nBLK_A\n 70\n0\n 10\n0\n 20\n0\n 30\n0\n" +
+            "  0\nINSERT\n  2\nBLK_B\n  8\n0\n 10\n0\n 20\n0\n 30\n0\n 41\n1\n 42\n1\n 50\n0\n" +
+            "  0\nENDBLK\n" +
+            "  0\nBLOCK\n  2\nBLK_B\n 70\n0\n 10\n0\n 20\n0\n 30\n0\n" +
+            "  0\nINSERT\n  2\nBLK_A\n  8\n0\n 10\n0\n 20\n0\n 30\n0\n 41\n1\n 42\n1\n 50\n0\n" +
+            "  0\nENDBLK\n" +
+            "  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nENTITIES\n" +
+            "  0\nINSERT\n  8\n0\n  2\nBLK_A\n 10\n100\n 20\n200\n 30\n0\n 41\n1\n 42\n1\n 50\n0\n" +
+            "  0\nENDSEC\n  0\nEOF\n";
+        // 路径集合检测到循环 → 退化为插入点，不死循环也不抛异常
+        ParseResult result = new CADParser().parse(new StringReader(dxf));
+        assertThat(result.getEntities()).hasSize(1);
+        CADEntity e = result.getEntities().get(0);
+        assertThat(e.getType()).isEqualTo("INSERT");
+        assertThat(e.getProperties().get("blockName")).isEqualTo("BLK_A");
+        assertThat(((Point) e.geometry()).getX()).isEqualTo(100.0);
+    }
+
+    @Test
+    void unknownSectionType_shouldBeSkippedWithoutError() throws Exception {
+        // 未知 SECTION "CUSTOM" 应被 SectionDispatcher 静默跳过，不影响后续解析
+        String dxf =
+            "  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nCUSTOM\n  1\nignored data\n  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nENTITIES\n" +
+            "  0\nLINE\n  8\n0\n 10\n0\n 20\n0\n 30\n0\n 11\n10\n 21\n0\n 31\n0\n" +
+            "  0\nENDSEC\n  0\nEOF\n";
+        ParseResult result = new CADParser().parse(new StringReader(dxf));
+        // CUSTOM 段静默跳过；后续 LINE 正常解析；无错误记录
+        assertThat(result.getEntities()).hasSize(1);
+        assertThat(result.getEntities().get(0).getType()).isEqualTo("LINE");
+        assertThat(result.getErrors()).isEmpty();
+    }
+
+    @Test
+    void zeroLengthLine_shouldBeSkipped() throws Exception {
+        // 起终点完全相同的 LINE 无几何意义，LineHandler 应跳过（返回空列表）
+        String dxf = entities(
+            "  0\nLINE\n  8\n0\n 10\n100\n 20\n200\n 30\n0\n 11\n100\n 21\n200\n 31\n0\n");
+        ParseResult result = new CADParser().parse(new StringReader(dxf));
+        assertThat(result.getEntities()).isEmpty();
+    }
+
+    @Test
+    void performanceBaseline_5000Lines_shouldParseWithin5Seconds() throws Exception {
+        // 5000 条 LINE 实体的内存解析基线；真实文件测试需外部夹具
+        StringBuilder sb = new StringBuilder(1 << 20);
+        sb.append("  0\nSECTION\n  2\nENTITIES\n");
+        for (int i = 0; i < 5000; i++) {
+            sb.append("  0\nLINE\n  8\n0\n")
+              .append(" 10\n").append(i).append(".0\n")
+              .append(" 20\n0.0\n 30\n0.0\n")
+              .append(" 11\n").append(i + 1).append(".0\n")
+              .append(" 21\n0.0\n 31\n0.0\n");
+        }
+        sb.append("  0\nENDSEC\n  0\nEOF\n");
+
+        long start = System.currentTimeMillis();
+        ParseResult result = new CADParser().parse(new StringReader(sb.toString()));
+        long elapsed = System.currentTimeMillis() - start;
+
+        assertThat(result.getEntities()).hasSize(5000);
+        assertThat(elapsed)
+            .as("5000 LINE 实体应在 5000ms 内解析完毕，实际耗时: " + elapsed + "ms")
+            .isLessThan(5000L);
     }
 }

@@ -1,5 +1,7 @@
 package com.nanodxf.layer;
 
+import com.nanodxf.geometry.AciColorTable;
+
 public class CADLayer {
     private final String name;
     private int colorNumber = 7;
@@ -9,12 +11,16 @@ public class CADLayer {
 
     public CADLayer(String name) {
         this.name = name;
+        this.colorRgb = AciColorTable.toRgb(7); // default color 7 = white
     }
 
     public String getName() { return name; }
 
     public int getColorNumber() { return colorNumber; }
-    public void setColorNumber(int colorNumber) { this.colorNumber = colorNumber; }
+    public void setColorNumber(int colorNumber) {
+        this.colorNumber = colorNumber;
+        this.colorRgb = AciColorTable.toRgb(colorNumber);
+    }
 
     public String getLineTypeName() { return lineTypeName; }
     public void setLineTypeName(String lineTypeName) { this.lineTypeName = lineTypeName; }

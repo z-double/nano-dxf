@@ -158,7 +158,7 @@ public class Discretizer {
         // 初始化局部控制点副本 d[0..p]
         double[][] d = new double[p + 1][dims];
         for (int j = 0; j <= p; j++) {
-            int idx = Math.min(k - p + j, n); // 防越界（退化情况）
+            int idx = Math.max(0, Math.min(k - p + j, n)); // 防越界（k-p+j 通常 ≥0，加 max 防退化文件）
             System.arraycopy(P[idx], 0, d[j], 0, dims);
         }
 
