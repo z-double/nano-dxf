@@ -3,20 +3,25 @@ package com.nanodxf;
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.geometry.AciColorTable;
 import com.nanodxf.model.DXFVersion;
+import com.nanodxf.output.DXFWriteConfig;
+import com.nanodxf.output.DXFWriter;
 import com.nanodxf.output.GeoJsonSerializer;
 import com.nanodxf.text.MTextCleaner;
 import com.nanodxf.xdata.FeatureCodeRegistry;
 import com.nanodxf.xdata.FeatureCodeRegistry.FeatureCodeInfo;
 import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.io.StringWriter;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -585,6 +590,123 @@ class CADParserTest {
         assertThat(json).doesNotContain("\"xdata\":null");
         assertThat(json).contains("\"code\"");
         assertThat(json).contains("41000");
+    }
+
+    // =========================================================================
+    // v1.1：DXFWriter
+    // =========================================================================
+
+    @Test
+    void dxfWriter_line_roundTrip() throws Exception {
+        // 写出一条 LINE，再解析回来，坐标应一致
+        String dxf = entities(
+            "  0\nLINE\n  8\n道路\n 10\n100\n 20\n200\n 30\n0\n 11\n150\n 21\n250\n 31\n0\n");
+        List<CADEntity> src = new CADParser().parse(new StringReader(dxf)).getEntities();
+        assertThat(src).hasSize(1);
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter().write(src, sw);
+        String written = sw.toString();
+
+        // 解析写出的 DXF
+        ParseResult result = new CADParser(
+            ParseConfig.builder().applyUnitConversion(false).build())
+            .parse(new StringReader(written));
+        assertThat(result.getEntities()).hasSize(1);
+        CADEntity e = result.getEntities().get(0);
+        assertThat(e.getType()).isEqualTo("LINE");
+        assertThat(e.getLayer()).isEqualTo("道路");
+        LineString ls = (LineString) e.geometry();
+        assertThat(ls.getStartPoint().getX()).isCloseTo(100.0, org.assertj.core.data.Offset.offset(1e-3));
+        assertThat(ls.getStartPoint().getY()).isCloseTo(200.0, org.assertj.core.data.Offset.offset(1e-3));
+        assertThat(ls.getEndPoint().getX()).isCloseTo(150.0, org.assertj.core.data.Offset.offset(1e-3));
+    }
+
+    @Test
+    void dxfWriter_lwPolyline_closedRing_roundTrip() throws Exception {
+        // 写出闭合 LWPOLYLINE（等高线），再解析回来应为 LinearRing，elevation 一致
+        String dxf = entities(
+            "  0\nLWPOLYLINE\n  8\n等高线\n 38\n125.3\n 70\n1\n" +
+            " 10\n0\n 20\n0\n 10\n100\n 20\n0\n 10\n100\n 20\n100\n 10\n0\n 20\n100\n");
+        List<CADEntity> src = new CADParser().parse(new StringReader(dxf)).getEntities();
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter().write(src, sw);
+        ParseResult result = new CADParser(
+            ParseConfig.builder().applyUnitConversion(false).build())
+            .parse(new StringReader(sw.toString()));
+
+        assertThat(result.getEntities()).hasSize(1);
+        CADEntity e = result.getEntities().get(0);
+        assertThat(e.geometry()).isInstanceOf(LinearRing.class);
+        // elevation 应保留
+        for (org.locationtech.jts.geom.Coordinate c : e.geometry().getCoordinates()) {
+            assertThat(c.getZ()).isCloseTo(125.3, org.assertj.core.data.Offset.offset(1e-3));
+        }
+    }
+
+    @Test
+    void dxfWriter_point_withElevation_roundTrip() throws Exception {
+        String dxf = entities(
+            "  0\nPOINT\n  8\n高程点\n 10\n500\n 20\n600\n 30\n88.5\n");
+        List<CADEntity> src = new CADParser().parse(new StringReader(dxf)).getEntities();
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter().write(src, sw);
+        ParseResult result = new CADParser(
+            ParseConfig.builder().applyUnitConversion(false).build())
+            .parse(new StringReader(sw.toString()));
+
+        assertThat(result.getEntities()).hasSize(1);
+        Point p = (Point) result.getEntities().get(0).geometry();
+        assertThat(p.getX()).isCloseTo(500.0, org.assertj.core.data.Offset.offset(1e-3));
+        assertThat(p.getCoordinate().getZ()).isCloseTo(88.5, org.assertj.core.data.Offset.offset(1e-3));
+    }
+
+    @Test
+    void dxfWriter_text_roundTrip() throws Exception {
+        String dxf = entities(
+            "  0\nTEXT\n  8\n注记\n 10\n10\n 20\n20\n 30\n0\n 40\n5\n  1\n测试文字\n");
+        List<CADEntity> src = new CADParser().parse(new StringReader(dxf)).getEntities();
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter().write(src, sw);
+        String written = sw.toString();
+
+        // 输出内容应含关键字段
+        assertThat(written).contains("TEXT");
+        assertThat(written).contains("测试文字");
+        assertThat(written).contains("注记");
+    }
+
+    @Test
+    void dxfWriter_multipleEntities_shouldProduceValidDxf() throws Exception {
+        // 多种类型混合写出后可被解析，且数量一致
+        String dxf = entities(
+            "  0\nLINE\n  8\n0\n 10\n0\n 20\n0\n 30\n0\n 11\n10\n 21\n0\n 31\n0\n",
+            "  0\nPOINT\n  8\n高程点\n 10\n5\n 20\n5\n 30\n10\n",
+            "  0\nLWPOLYLINE\n  8\n0\n 70\n0\n 10\n0\n 20\n0\n 10\n10\n 20\n0\n 10\n10\n 20\n10\n");
+        List<CADEntity> src = new CADParser().parse(new StringReader(dxf)).getEntities();
+        assertThat(src).hasSize(3);
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter().write(src, sw);
+        ParseResult result = new CADParser(
+            ParseConfig.builder().applyUnitConversion(false).build())
+            .parse(new StringReader(sw.toString()));
+        assertThat(result.getEntities()).hasSize(3);
+    }
+
+    @Test
+    void dxfWriteConfig_encodingAutoSelect_r2000usesGbk() {
+        DXFWriteConfig cfg = DXFWriteConfig.builder().version(DXFVersion.R2000).build();
+        assertThat(cfg.getEncoding()).isEqualTo("GBK");
+    }
+
+    @Test
+    void dxfWriteConfig_encodingAutoSelect_r2007usesUtf8() {
+        DXFWriteConfig cfg = DXFWriteConfig.builder().version(DXFVersion.R2007).build();
+        assertThat(cfg.getEncoding()).isEqualTo("UTF-8");
     }
 
     @Test
