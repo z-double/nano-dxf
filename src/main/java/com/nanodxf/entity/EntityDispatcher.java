@@ -4,19 +4,22 @@ import com.nanodxf.entity.handler.*;
 import com.nanodxf.model.DXFContext;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * 根据实体类型字符串将 EntityBuffer 分发到对应的 {@link EntityHandler}。
  *
- * <p>内置处理器在构造方法中硬编码注册。
- * 外部扩展通过 {@link #register} 方法注入（可与 ServiceLoader SPI 配合使用，
- * 支持第三方自定义实体，如国内测绘软件的私有实体类型）。
+ * <p>内置处理器在构造方法中硬编码注册；外部扩展通过 {@link #register} 注入。
  *
- * <p>遇到未注册的实体类型时 {@link #dispatch} 返回 null，
- * 调用方应将该类型记录到 QualityReport.skippedEntityTypes，以便后续扩展。
+ * <p>{@link #dispatch} 返回：
+ * <ul>
+ *   <li>非 null 列表 — handler 正常调用结果（可为空列表）</li>
+ *   <li>null — 实体类型未注册（调用方负责记录到 skippedEntityTypes）</li>
+ * </ul>
  */
 public class EntityDispatcher {
+
     private final Map<String, EntityHandler> handlers = new HashMap<>();
 
     public EntityDispatcher() {
@@ -46,28 +49,23 @@ public class EntityDispatcher {
         register("VIEWPORT",    EntityHandler.SKIP);
     }
 
-    /**
-     * 注册或覆盖指定实体类型的处理器。
-     *
-     * @param entityType 实体类型字符串（不区分大小写，内部统一转大写）
-     * @param handler    对应的解析器；传入 {@link EntityHandler#SKIP} 表示跳过
-     */
+    /** 注册或覆盖指定实体类型的处理器（不区分大小写，内部转大写）。 */
     public void register(String entityType, EntityHandler handler) {
         handlers.put(entityType.toUpperCase(), handler);
     }
 
     /**
-     * 将 buffer 分发到对应处理器并返回解析结果。
+     * 分发 buffer 到对应处理器。
      *
-     * @return 解析得到的 CADEntity；若类型未注册或 handler 返回 null，则返回 null
+     * @return handler 返回的实体列表；若类型未注册返回 null（由调用方区分"跳过"与"未知"）
      */
-    public CADEntity dispatch(String entityType, EntityBuffer buffer, DXFContext ctx) {
+    public List<CADEntity> dispatch(String entityType, EntityBuffer buffer, DXFContext ctx) {
         EntityHandler handler = handlers.get(entityType.toUpperCase());
-        if (handler == null) return null;
+        if (handler == null) return null; // 未注册类型
         return handler.handle(buffer, ctx);
     }
 
-    /** 检查指定实体类型是否已注册（包括注册为 SKIP 的类型）。 */
+    /** 检查指定实体类型是否已注册（含注册为 SKIP 的类型）。 */
     public boolean isKnown(String entityType) {
         return handlers.containsKey(entityType.toUpperCase());
     }

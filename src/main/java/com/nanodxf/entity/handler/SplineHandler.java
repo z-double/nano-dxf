@@ -1,4 +1,4 @@
-package com.nanodxf.entity.handler;
+﻿package com.nanodxf.entity.handler;
 
 import com.nanodxf.core.GroupCodePair;
 import com.nanodxf.entity.CADEntity;
@@ -34,7 +34,7 @@ import java.util.List;
 public class SplineHandler implements EntityHandler {
 
     @Override
-    public CADEntity handle(EntityBuffer buffer, DXFContext ctx) {
+    public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
         String handle = buffer.getString(5, "");
         String layer  = buffer.getString(8, "0");
         int degree    = buffer.getInt(71, 3);
@@ -50,20 +50,20 @@ public class SplineHandler implements EntityHandler {
         // 控制点：code 10/20/30 按出现顺序组成三维点
         List<double[]> ctrlPtList = parseControlPoints(buffer);
 
-        if (ctrlPtList.isEmpty() || knots.length < 2) return null;
+        if (ctrlPtList.isEmpty() || knots.length < 2) return List.of();
 
         double[][] ctrlPts = ctrlPtList.toArray(new double[0][]);
 
         List<Coordinate> coords = Discretizer.spline(
                 degree, knots, ctrlPts, ctx.config.getArcTolerance());
 
-        if (coords.size() < 2) return null;
+        if (coords.size() < 2) return List.of();
 
         LineString geom = GeometryBuilder.factory()
                 .createLineString(coords.toArray(new Coordinate[0]));
 
-        return CADEntity.builder("SPLINE")
-                .handle(handle).layer(layer).geometry(geom).build();
+        return List.of(CADEntity.builder("SPLINE")
+                .handle(handle).layer(layer).geometry(geom).build());
     }
 
     /**

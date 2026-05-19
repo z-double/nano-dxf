@@ -1,4 +1,4 @@
-package com.nanodxf.entity.handler;
+﻿package com.nanodxf.entity.handler;
 
 import com.nanodxf.core.GroupCodePair;
 import com.nanodxf.entity.CADEntity;
@@ -42,7 +42,7 @@ import java.util.List;
 public class LWPolylineHandler implements EntityHandler {
 
     @Override
-    public CADEntity handle(EntityBuffer buffer, DXFContext ctx) {
+    public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
         String handle    = buffer.getString(5, "");
         String layer     = buffer.getString(8, "0");
         double elevation = buffer.getDouble(38, 0.0); // 整体 Z 高度
@@ -71,12 +71,12 @@ public class LWPolylineHandler implements EntityHandler {
             }
         }
 
-        if (vertices.size() < 2) return null; // 顶点不足，几何无意义
+        if (vertices.size() < 2) return List.of(); // 顶点不足，几何无意义
 
         double tolerance = ctx.config.getArcTolerance();
         List<Coordinate> coords = buildCoords(vertices, bulges, closed, elevation, tolerance);
 
-        if (coords.size() < 2) return null;
+        if (coords.size() < 2) return List.of();
 
         Geometry geom = buildGeometry(coords, closed);
 
@@ -88,7 +88,7 @@ public class LWPolylineHandler implements EntityHandler {
         // elevation 非零时存入属性，便于等高线高程提取
         if (elevation != 0.0) builder.property("elevation", elevation);
 
-        return builder.build();
+        return List.of(builder.build());
     }
 
     /**

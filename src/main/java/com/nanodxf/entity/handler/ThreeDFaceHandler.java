@@ -1,4 +1,6 @@
-package com.nanodxf.entity.handler;
+﻿package com.nanodxf.entity.handler;
+
+import java.util.List;
 
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
@@ -27,7 +29,7 @@ import org.locationtech.jts.geom.LinearRing;
 public class ThreeDFaceHandler implements EntityHandler {
 
     @Override
-    public CADEntity handle(EntityBuffer buffer, DXFContext ctx) {
+    public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
         String handle = buffer.getString(5, "");
         String layer  = buffer.getString(8, "0");
 
@@ -47,7 +49,7 @@ public class ThreeDFaceHandler implements EntityHandler {
         }
 
         LinearRing geom = GeometryBuilder.factory().createLinearRing(coords);
-        return CADEntity.builder("3DFACE")
-                .handle(handle).layer(layer).geometry(geom).build();
+        return List.of(CADEntity.builder("3DFACE")
+                .handle(handle).layer(layer).geometry(geom).build());
     }
 }

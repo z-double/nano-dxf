@@ -1,4 +1,4 @@
-package com.nanodxf.entity.handler;
+﻿package com.nanodxf.entity.handler;
 
 import com.nanodxf.core.GroupCodePair;
 import com.nanodxf.entity.CADEntity;
@@ -37,7 +37,7 @@ import java.util.List;
 public class HatchHandler implements EntityHandler {
 
     @Override
-    public CADEntity handle(EntityBuffer buffer, DXFContext ctx) {
+    public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
         String handle    = buffer.getString(5, "");
         String layer     = buffer.getString(8, "0");
         double tolerance = ctx.config.getArcTolerance();
@@ -51,7 +51,7 @@ public class HatchHandler implements EntityHandler {
             GroupCodePair pair = pairs.get(pos[0]++);
             if (pair.code() == 91) { numPaths = pair.asInt(); break; }
         }
-        if (numPaths == 0) return null;
+        if (numPaths == 0) return List.of();
 
         List<LinearRing> shells = new ArrayList<>();
         List<LinearRing> holes  = new ArrayList<>();
@@ -60,11 +60,11 @@ public class HatchHandler implements EntityHandler {
             parsePath(pairs, pos, tolerance, shells, holes, p == 0);
         }
 
-        if (shells.isEmpty()) return null;
+        if (shells.isEmpty()) return List.of();
 
         Geometry geom = buildGeometry(shells, holes);
-        return CADEntity.builder("HATCH")
-                .handle(handle).layer(layer).geometry(geom).build();
+        return List.of(CADEntity.builder("HATCH")
+                .handle(handle).layer(layer).geometry(geom).build());
     }
 
     // -------------------------------------------------------------------------

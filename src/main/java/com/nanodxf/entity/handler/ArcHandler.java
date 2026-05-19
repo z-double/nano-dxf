@@ -1,4 +1,4 @@
-package com.nanodxf.entity.handler;
+﻿package com.nanodxf.entity.handler;
 
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
@@ -32,7 +32,7 @@ import java.util.List;
 public class ArcHandler implements EntityHandler {
 
     @Override
-    public CADEntity handle(EntityBuffer buffer, DXFContext ctx) {
+    public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
         String handle = buffer.getString(5, "");
         String layer  = buffer.getString(8, "0");
 
@@ -44,7 +44,7 @@ public class ArcHandler implements EntityHandler {
         double startAngle = buffer.getDouble(50, 0);
         double endAngle   = buffer.getDouble(51, 360);
 
-        if (r <= 0) return null;
+        if (r <= 0) return List.of();
 
         double tolerance = ctx.config.getArcTolerance();
         List<Coordinate> pts = Discretizer.arc(
@@ -56,10 +56,10 @@ public class ArcHandler implements EntityHandler {
         LineString geom = GeometryBuilder.factory()
                 .createLineString(pts.toArray(new Coordinate[0]));
 
-        return CADEntity.builder("ARC")
+        return List.of(CADEntity.builder("ARC")
                 .handle(handle)
                 .layer(layer)
                 .geometry(geom)
-                .build();
+                .build());
     }
 }

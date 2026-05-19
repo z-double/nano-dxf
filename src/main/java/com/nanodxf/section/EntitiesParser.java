@@ -27,9 +27,9 @@ import java.util.*;
  *   <li>收集该实体所有 group code 到 {@link EntityBuffer}</li>
  *   <li>对 POLYLINE / INSERT+code66 收集子实体缓冲（在 PaperSpaceFilter 之前，保持 reader 流同步）</li>
  *   <li>通过 {@link PaperSpaceFilter} 过滤图纸空间实体（code 67=1）</li>
- *   <li>通过 {@link EntityDispatcher} 分发到对应 handler</li>
+ *   <li>通过 {@link EntityDispatcher} 分发到对应 handler（返回 List，可为空）</li>
  *   <li>富化：颜色（ACI + True Color）+ XDATA（地物编码映射）</li>
- *   <li>成功解析的实体追加到 {@code ctx.entities}；失败时记录 WARN 到 {@code ctx.errors}</li>
+ *   <li>将所有结果追加到 {@code ctx.entities}</li>
  * </ol>
  */
 public class EntitiesParser {
@@ -47,7 +47,7 @@ public class EntitiesParser {
             String entityType = pair.value();
             EntityBuffer buffer = collectBuffer(reader);
 
-            // 子实体必须先于 PaperSpaceFilter 消费（保持 reader 流同步）
+            // 子实体必须先于 PaperSpaceFilter 消费，保持 reader 流同步
             if ("POLYLINE".equals(entityType)) {
                 collectChildEntities(reader, buffer, Set.of("VERTEX"));
             } else if ("INSERT".equals(entityType) && buffer.getInt(66, 0) == 1) {
@@ -56,22 +56,19 @@ public class EntitiesParser {
 
             if (!PaperSpaceFilter.isModelSpace(buffer)) continue;
 
-            CADEntity entity = dispatcher.dispatch(entityType, buffer, ctx);
-
-            if (entity == null) {
-                // handler 返回 null：未注册类型记录 skipped，已注册但失败记录 WARN
-                if (!dispatcher.isKnown(entityType)) {
-                    ctx.skippedEntityTypes.add(entityType);
-                } else {
-                    ctx.errors.add(new ParseError(ParseErrorLevel.WARN, entityType,
-                        buffer.getString(5, ""), "handler 返回 null，实体被跳过"));
-                }
+            List<CADEntity> dispatched = dispatcher.dispatch(entityType, buffer, ctx);
+            if (dispatched == null) {
+                // 未注册类型 → 记录 skipped（INFO 级别，由 CADParser 统一追加到 errors）
+                ctx.skippedEntityTypes.add(entityType);
                 continue;
             }
 
-            entity = enrichColor(entity, buffer, ctx);
-            entity = enrichXData(entity, buffer);
-            ctx.entities.add(entity);
+            // 逐实体富化后追加到 ctx.entities
+            for (CADEntity entity : dispatched) {
+                entity = enrichColor(entity, buffer, ctx);
+                entity = enrichXData(entity, buffer);
+                ctx.entities.add(entity);
+            }
         }
     }
 
@@ -79,14 +76,6 @@ public class EntitiesParser {
     // 颜色富化
     // -------------------------------------------------------------------------
 
-    /**
-     * 从 buffer 读取颜色 group code，将显式颜色追加到实体属性。
-     * <ul>
-     *   <li>code 420（True Color，R2004+）优先于 code 62（ACI）</li>
-     *   <li>code 62 = 256（BYLAYER）时，尝试从图层色表继承 colorRgb</li>
-     *   <li>code 62 = 0（BYBLOCK）时不追加，延迟到块展开时处理</li>
-     * </ul>
-     */
     private CADEntity enrichColor(CADEntity entity, EntityBuffer buffer, DXFContext ctx) {
         int trueColor = buffer.getInt(420, -1);
         if (trueColor >= 0) {
@@ -95,18 +84,15 @@ public class EntitiesParser {
             int b =  trueColor        & 0xFF;
             return entity.withProperty("colorRgb", new int[]{r, g, b});
         }
-
         int aci = buffer.getInt(62, 256);
         if (aci == 256) {
-            // BYLAYER：从图层继承
             CADLayer layer = ctx.layers.get(entity.getLayer());
             if (layer != null && layer.colorRgb() != null) {
                 return entity.withProperty("colorRgb", layer.colorRgb());
             }
             return entity;
         }
-        if (aci == 0) return entity; // BYBLOCK
-
+        if (aci == 0) return entity;
         int[] rgb = AciColorTable.toRgb(aci);
         return rgb != null
             ? entity.withProperty("colorAci", aci).withProperty("colorRgb", rgb)
@@ -117,16 +103,6 @@ public class EntitiesParser {
     // XDATA 富化
     // -------------------------------------------------------------------------
 
-    /**
-     * 从 buffer 提取 XDATA，进行地物编码映射，并将结果追加到实体属性：
-     * <ul>
-     *   <li>{@code xdata} - 原始 XDATA map（{@code Map<应用名, List<XDataEntry>>}）</li>
-     *   <li>{@code featureCode} - 地物编码（如 "41000"）</li>
-     *   <li>{@code featureType} - 地物名称（如 "普通房屋"）</li>
-     *   <li>{@code featureCategory} - 地物大类（如 "建筑"）</li>
-     *   <li>{@code featureTypeSource} - "registry"（已收录）或 "unknown"（未收录）</li>
-     * </ul>
-     */
     private CADEntity enrichXData(CADEntity entity, EntityBuffer buffer) {
         Map<String, List<XDataEntry>> xdata = xdataParser.parseFromBuffer(buffer);
         if (xdata.isEmpty()) return entity;
@@ -138,8 +114,8 @@ public class EntitiesParser {
             extra.put("featureCode", code);
             FeatureCodeRegistry.lookup(code).ifPresentOrElse(
                 info -> {
-                    extra.put("featureType",      info.name());
-                    extra.put("featureCategory",  info.category());
+                    extra.put("featureType",       info.name());
+                    extra.put("featureCategory",   info.category());
                     extra.put("featureTypeSource", "registry");
                 },
                 () -> extra.put("featureTypeSource", "unknown")
@@ -150,11 +126,10 @@ public class EntitiesParser {
     }
 
     // -------------------------------------------------------------------------
-    // 辅助方法
+    // 辅助方法（同 BlocksParser 中的同名方法，职责相同）
     // -------------------------------------------------------------------------
 
-    /** 收集单个实体的 group code 到缓冲区，遇到 code=0 边界则 pushBack 并停止。 */
-    private EntityBuffer collectBuffer(DXFReader reader) throws IOException {
+    EntityBuffer collectBuffer(DXFReader reader) throws IOException {
         EntityBuffer buffer = new EntityBuffer();
         while (reader.hasNext()) {
             GroupCodePair pair = reader.next();
@@ -165,12 +140,8 @@ public class EntitiesParser {
         return buffer;
     }
 
-    /**
-     * 读取 VERTEX / ATTRIB 等子实体直到 SEQEND，追加为父实体的 children。
-     * 若文件缺少 SEQEND（格式损坏），遇到非子实体类型时 pushBack 并退出。
-     */
-    private void collectChildEntities(DXFReader reader, EntityBuffer parent,
-                                       Set<String> childTypes) throws IOException {
+    void collectChildEntities(DXFReader reader, EntityBuffer parent,
+                               Set<String> childTypes) throws IOException {
         while (reader.hasNext()) {
             GroupCodePair pair = reader.next();
             if (pair == null) break;

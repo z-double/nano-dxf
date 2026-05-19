@@ -1,4 +1,4 @@
-package com.nanodxf.entity.handler;
+﻿package com.nanodxf.entity.handler;
 
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
@@ -34,7 +34,7 @@ import java.util.List;
 public class PolylineHandler implements EntityHandler {
 
     @Override
-    public CADEntity handle(EntityBuffer buffer, DXFContext ctx) {
+    public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
         String handle = buffer.getString(5, "");
         String layer  = buffer.getString(8, "0");
         int flags  = buffer.getInt(70, 0);
@@ -43,10 +43,10 @@ public class PolylineHandler implements EntityHandler {
         boolean isMesh = (flags & 16) != 0 || (flags & 64) != 0;
 
         // 暂不支持网格类型
-        if (isMesh) return null;
+        if (isMesh) return List.of();
 
         List<EntityBuffer> vertexBuffers = buffer.getChildren();
-        if (vertexBuffers.isEmpty()) return null;
+        if (vertexBuffers.isEmpty()) return List.of();
 
         List<Coordinate> coords = new ArrayList<>(vertexBuffers.size() + 1);
         for (EntityBuffer vb : vertexBuffers) {
@@ -60,7 +60,7 @@ public class PolylineHandler implements EntityHandler {
             coords.add(new Coordinate(x, y, z));
         }
 
-        if (coords.size() < 2) return null;
+        if (coords.size() < 2) return List.of();
 
         if (closed) {
             Coordinate first = coords.get(0);
@@ -79,7 +79,7 @@ public class PolylineHandler implements EntityHandler {
                     .createLineString(coords.toArray(new Coordinate[0]));
         }
 
-        return CADEntity.builder("POLYLINE")
-                .handle(handle).layer(layer).geometry(geom).build();
+        return List.of(CADEntity.builder("POLYLINE")
+                .handle(handle).layer(layer).geometry(geom).build());
     }
 }

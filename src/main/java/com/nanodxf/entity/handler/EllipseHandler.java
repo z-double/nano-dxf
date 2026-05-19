@@ -1,4 +1,4 @@
-package com.nanodxf.entity.handler;
+﻿package com.nanodxf.entity.handler;
 
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
@@ -36,7 +36,7 @@ import java.util.List;
 public class EllipseHandler implements EntityHandler {
 
     @Override
-    public CADEntity handle(EntityBuffer buffer, DXFContext ctx) {
+    public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
         String handle = buffer.getString(5, "");
         String layer  = buffer.getString(8, "0");
 
@@ -57,11 +57,11 @@ public class EllipseHandler implements EntityHandler {
         double theta = Math.atan2(my, mx);
         double b     = a * ratio;
 
-        if (a < 1e-12) return null;
+        if (a < 1e-12) return List.of();
 
         double span = endParam - startParam;
         if (span < 0) span += 2 * Math.PI;
-        if (span < 1e-9) return null;
+        if (span < 1e-9) return List.of();
 
         // 采样点数：以最大轴的弦高误差为基准
         double rMax      = Math.max(a, b);
@@ -91,7 +91,7 @@ public class EllipseHandler implements EntityHandler {
                     .createLineString(pts.toArray(new Coordinate[0]));
         }
 
-        return CADEntity.builder("ELLIPSE")
-                .handle(handle).layer(layer).geometry(geom).build();
+        return List.of(CADEntity.builder("ELLIPSE")
+                .handle(handle).layer(layer).geometry(geom).build());
     }
 }

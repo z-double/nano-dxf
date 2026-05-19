@@ -154,6 +154,86 @@ class CADParserTest {
         assertThat(e.geometry().getCoordinates()[0].getZ()).isEqualTo(10.0);
     }
 
+    // =========================================================================
+    // INSERT 块展开
+    // =========================================================================
+
+    /**
+     * 最简块展开：块 SQUARE 内含一条 LINE（(0,0)-(10,0)），
+     * INSERT 以 (100,200) 为插入点、比例 2、无旋转，
+     * 展开后应得到 LINE (100,200)-(120,200)。
+     */
+    @Test
+    void parseInsert_blockExpansion_shouldTransformBlockEntities() throws Exception {
+        String dxf =
+            "  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nBLOCKS\n" +
+            "  0\nBLOCK\n  2\nSQUARE\n 70\n0\n 10\n0\n 20\n0\n 30\n0\n" +
+            "  0\nLINE\n  8\n建筑\n" +
+            " 10\n0\n 20\n0\n 30\n0\n 11\n10\n 21\n0\n 31\n0\n" +
+            "  0\nENDBLK\n" +
+            "  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nENTITIES\n" +
+            "  0\nINSERT\n  8\n0\n  2\nSQUARE\n" +
+            " 10\n100\n 20\n200\n 30\n0\n 41\n2\n 42\n2\n 50\n0\n" +
+            "  0\nENDSEC\n  0\nEOF\n";
+
+        ParseResult result = new CADParser().parse(new StringReader(dxf));
+        // 展开后得到 1 个 LINE 实体（不是 INSERT 点）
+        assertThat(result.getEntities()).hasSize(1);
+        CADEntity e = result.getEntities().get(0);
+        assertThat(e.getType()).isEqualTo("LINE");
+
+        org.locationtech.jts.geom.LineString ls =
+            (org.locationtech.jts.geom.LineString) e.geometry();
+        // 起点：(0,0) * scale2 → (0,0) → translate (100,200) → (100,200)
+        assertThat(ls.getStartPoint().getX()).isEqualTo(100.0);
+        assertThat(ls.getStartPoint().getY()).isEqualTo(200.0);
+        // 终点：(10,0) * scale2 → (20,0) → translate → (120,200)
+        assertThat(ls.getEndPoint().getX()).isEqualTo(120.0);
+        assertThat(ls.getEndPoint().getY()).isEqualTo(200.0);
+    }
+
+    @Test
+    void parseInsert_blockExpansion_withRotation90_shouldRotateCoordinates() throws Exception {
+        String dxf =
+            "  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nBLOCKS\n" +
+            "  0\nBLOCK\n  2\nROT_TEST\n 70\n0\n 10\n0\n 20\n0\n 30\n0\n" +
+            "  0\nLINE\n  8\n0\n" +
+            " 10\n10\n 20\n0\n 30\n0\n 11\n10\n 21\n0\n 31\n0\n" + // zero-length，应被跳过
+            "  0\nLINE\n  8\n0\n" +
+            " 10\n1\n 20\n0\n 30\n0\n 11\n0\n 21\n1\n 31\n0\n" +   // (1,0)-(0,1)
+            "  0\nENDBLK\n  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nENTITIES\n" +
+            "  0\nINSERT\n  8\n0\n  2\nROT_TEST\n" +
+            " 10\n0\n 20\n0\n 30\n0\n 41\n1\n 42\n1\n 50\n90\n" + // 旋转 90°
+            "  0\nENDSEC\n  0\nEOF\n";
+
+        ParseResult result = new CADParser().parse(new StringReader(dxf));
+        // 第一条 LINE 零长度被跳过，第二条 (1,0)-(0,1) 旋转 90° → (0,1)-(-1,0)
+        assertThat(result.getEntities()).hasSize(1);
+        org.locationtech.jts.geom.LineString ls =
+            (org.locationtech.jts.geom.LineString) result.getEntities().get(0).geometry();
+        // 旋转 90°: (x,y) → (-y, x)
+        // (1,0) → (0, 1)
+        assertThat(ls.getStartPoint().getX()).isCloseTo(0.0, org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(ls.getStartPoint().getY()).isCloseTo(1.0, org.assertj.core.data.Offset.offset(1e-9));
+    }
+
+    @Test
+    void parseInsert_undefinedBlock_shouldFallbackToInsertPoint() throws Exception {
+        // 块 UNDEFINED 未在 BLOCKS 段定义，展开退化为 INSERT Point
+        String dxf = entities(
+            "  0\nINSERT\n  8\n0\n  2\nUNDEFINED\n" +
+            " 10\n500\n 20\n600\n 30\n0\n 41\n1\n 42\n1\n 50\n0\n");
+
+        CADEntity e = single(dxf);
+        assertThat(e.getType()).isEqualTo("INSERT");
+        assertThat(e.getProperties().get("blockName")).isEqualTo("UNDEFINED");
+        assertThat(((Point) e.geometry()).getX()).isEqualTo(500.0);
+    }
+
     @Test
     void parseInsert_withAttrib_shouldReturnPointWithAttributes() throws Exception {
         CADEntity e = single(entities(

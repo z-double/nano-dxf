@@ -1,4 +1,6 @@
-package com.nanodxf.entity.handler;
+﻿package com.nanodxf.entity.handler;
+
+import java.util.List;
 
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
@@ -28,7 +30,7 @@ import org.locationtech.jts.geom.LineString;
 public class LineHandler implements EntityHandler {
 
     @Override
-    public CADEntity handle(EntityBuffer buffer, DXFContext ctx) {
+    public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
         String handle = buffer.getString(5, "");
         String layer  = buffer.getString(8, "0");
 
@@ -43,15 +45,15 @@ public class LineHandler implements EntityHandler {
         Coordinate end   = new Coordinate(x2, y2, z2);
 
         // 零长度线段无意义，返回 null 由调用方记录 WARN
-        if (start.equals2D(end)) return null;
+        if (start.equals2D(end)) return List.of();
 
         LineString geom = GeometryBuilder.factory()
                 .createLineString(new Coordinate[]{start, end});
 
-        return CADEntity.builder("LINE")
+        return List.of(CADEntity.builder("LINE")
                 .handle(handle)
                 .layer(layer)
                 .geometry(geom)
-                .build();
+                .build());
     }
 }

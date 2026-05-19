@@ -1,4 +1,4 @@
-package com.nanodxf.entity.handler;
+﻿package com.nanodxf.entity.handler;
 
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
@@ -32,7 +32,7 @@ import java.util.List;
 public class CircleHandler implements EntityHandler {
 
     @Override
-    public CADEntity handle(EntityBuffer buffer, DXFContext ctx) {
+    public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
         String handle = buffer.getString(5, "");
         String layer  = buffer.getString(8, "0");
 
@@ -41,7 +41,7 @@ public class CircleHandler implements EntityHandler {
         double cz = buffer.getDouble(30, 0);
         double r  = buffer.getDouble(40, 0);
 
-        if (r <= 0) return null; // 无效半径
+        if (r <= 0) return List.of(); // 无效半径
 
         double tolerance = ctx.config.getArcTolerance();
         // 生成 0°~360° 的离散点列
@@ -57,10 +57,10 @@ public class CircleHandler implements EntityHandler {
         LinearRing geom = GeometryBuilder.factory()
                 .createLinearRing(pts.toArray(new Coordinate[0]));
 
-        return CADEntity.builder("CIRCLE")
+        return List.of(CADEntity.builder("CIRCLE")
                 .handle(handle)
                 .layer(layer)
                 .geometry(geom)
-                .build();
+                .build());
     }
 }

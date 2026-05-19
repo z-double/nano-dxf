@@ -1,4 +1,6 @@
-package com.nanodxf.entity.handler;
+﻿package com.nanodxf.entity.handler;
+
+import java.util.List;
 
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
@@ -34,7 +36,7 @@ import org.locationtech.jts.geom.Point;
 public class MTextHandler implements EntityHandler {
 
     @Override
-    public CADEntity handle(EntityBuffer buffer, DXFContext ctx) {
+    public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
         String handle = buffer.getString(5, "");
         String layer  = buffer.getString(8, "0");
 
@@ -56,7 +58,7 @@ public class MTextHandler implements EntityHandler {
         Point geom = GeometryBuilder.factory()
                 .createPoint(new Coordinate(x, y, z));
 
-        return CADEntity.builder("MTEXT")
+        return List.of(CADEntity.builder("MTEXT")
                 .handle(handle)
                 .layer(layer)
                 .geometry(geom)
@@ -64,6 +66,6 @@ public class MTextHandler implements EntityHandler {
                 .property("rawText",  rawText.toString()) // 保留原始，供调试
                 .property("height",   height)
                 .property("rotation", rotation)
-                .build();
+                .build());
     }
 }
