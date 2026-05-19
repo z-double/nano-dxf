@@ -42,11 +42,14 @@ public class DXFWriteConfig {
     public static DXFWriteConfig defaults()      { return builder().build(); }
 
     public static class Builder {
-        private DXFVersion version = DXFVersion.R2000;
+        private DXFVersion version = DXFVersion.R12;
         private String encoding = null; // null = 随版本自动
         private int coordinateDecimalPlaces = 4;
 
-        /** 输出版本，默认 {@link DXFVersion#R2000}。 */
+        /**
+         * 输出版本，默认 {@link DXFVersion#R12}（最兼容，不需要子类标记和 owner handle）。
+         * 需要 True Color 时选 R2004+；R2000+ 路径会自动补全所有 owner handle 交叉引用。
+         */
         public Builder version(DXFVersion v)            { this.version = v; return this; }
 
         /**
