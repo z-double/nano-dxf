@@ -45,6 +45,47 @@ class DXFWriterSampleTest {
     private static final int ACI_BLUE    = 5;  // 水系
     private static final int ACI_WHITE   = 7;  // 道路/注记
 
+    /**
+     * 最简诊断文件：纯 ASCII 图层名、3 个实体，排除中文编码干扰。
+     * 若此文件能打开而 complex_survey.dxf 不能 → 中文编码问题。
+     * 若此文件也不能打开 → 结构问题。
+     */
+    @Test
+    void generateMinimalAsciiDxf() throws IOException {
+        List<CADEntity> entities = new ArrayList<>();
+        // LINE
+        entities.add(CADEntity.builder("LINE").layer("Road")
+                .geometry(GF.createLineString(new Coordinate[]{
+                        new Coordinate(0, 0, 0), new Coordinate(100, 0, 0)}))
+                .property("colorAci", 7).build());
+        // POINT with elevation
+        entities.add(CADEntity.builder("POINT").layer("Survey")
+                .geometry(GF.createPoint(new Coordinate(50, 50, 25.3)))
+                .property("colorAci", 1)
+                .property("elevation", 25.3).build());
+        // Closed LWPOLYLINE (rectangle)
+        entities.add(CADEntity.builder("LWPOLYLINE").layer("Building")
+                .geometry(closedRing(c(10,10), c(40,10), c(40,30), c(10,30)))
+                .property("colorAci", 3).build());
+
+        Path outDir = Paths.get("target/sample");
+        Files.createDirectories(outDir);
+        Path outFile = outDir.resolve("minimal_ascii.dxf");
+
+        new DXFWriter(DXFWriteConfig.builder()
+                .version(com.nanodxf.model.DXFVersion.R2000)
+                .encoding("UTF-8")
+                .coordinateDecimalPlaces(4)
+                .build()).write(entities, outFile);
+
+        System.out.println("最简 ASCII 文件：" + outFile.toAbsolutePath());
+        // 验证可被解析
+        ParseResult r = new CADParser(
+                ParseConfig.builder().applyUnitConversion(false).build())
+                .parse(outFile);
+        assertThat(r.getEntities()).hasSize(3);
+    }
+
     @Test
     void generateComplexDxfSample() throws IOException {
         List<CADEntity> entities = new ArrayList<>();

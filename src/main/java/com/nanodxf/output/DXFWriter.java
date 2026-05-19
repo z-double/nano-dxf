@@ -248,9 +248,9 @@ public class DXFWriter {
     private void writeR2000Header(LineWriter w) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "HEADER");
         pair(w, 9, "$ACADVER");    pair(w, 1, config.getVersion().getVersionString());
-        // 编码声明：R2007+ 用 UTF-8，以下用 ANSI_936（GBK，AutoCAD 中文必须）
+        // 编码声明：以实际 encoding 为准（GBK→ANSI_936），不依赖版本
         pair(w, 9, "$DWGCODEPAGE");
-        pair(w, 3, config.getVersion().before(DXFVersion.R2007) ? "ANSI_936" : "UTF-8");
+        pair(w, 3, "GBK".equalsIgnoreCase(config.getEncoding()) ? "ANSI_936" : "UTF-8");
         pair(w, 9, "$INSUNITS");   pair(w, 70, "6");
         pair(w, 9, "$LTSCALE");    pair(w, 40, fmt(1.0));
         pair(w, 9, "$EXTMIN");
@@ -261,13 +261,15 @@ public class DXFWriter {
     }
 
     private void writeR2000Tables(LineWriter w, Set<String> layers, int[] lyH) throws IOException {
+        // 预留 VPORT / APPID 句柄（紧跟图层句柄分配区）
+        // lyH[0] 从 0x10 起，VPORT/APPID 表和记录用更高段句柄避免冲突
         pair(w, 0, "SECTION"); pair(w, 2, "TABLES");
 
         // BLOCK_RECORD 表（*Model_Space + *Paper_Space）
         pair(w, 0, "TABLE"); pair(w, 2, "BLOCK_RECORD");
         pair(w, 5, H_BR_TABLE);
-        pair(w, 330, "0");                        // ← owner = root（必须，缺失导致 eNullObjectId）
-        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "2");
+        pair(w, 330, "0");
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "0"); // 0 = 与参考文件一致
         writeBlockRecord(w, H_MS_BR, "*Model_Space");
         writeBlockRecord(w, H_PS_BR, "*Paper_Space");
         pair(w, 0, "ENDTAB");
@@ -312,6 +314,22 @@ public class DXFWriter {
         pair(w, 71, "0"); pair(w, 42, fmt(2.5)); pair(w, 3, "txt"); pair(w, 4, "");
         pair(w, 0, "ENDTAB");
 
+        // VPORT 表（空，R2000 需要存在）
+        pair(w, 0, "TABLE"); pair(w, 2, "VPORT");
+        pair(w, 5, "E0"); pair(w, 330, "0");
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "0");
+        pair(w, 0, "ENDTAB");
+
+        // APPID 表（注册 ACAD 应用名，R2000 XDATA 必须）
+        pair(w, 0, "TABLE"); pair(w, 2, "APPID");
+        pair(w, 5, "E1"); pair(w, 330, "0");
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "1");
+        pair(w, 0, "APPID"); pair(w, 5, "E2");
+        pair(w, 330, "E1");
+        pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbRegAppTableRecord");
+        pair(w, 2, "ACAD"); pair(w, 70, "0");
+        pair(w, 0, "ENDTAB");
+
         pair(w, 0, "ENDSEC");
     }
 
@@ -319,7 +337,10 @@ public class DXFWriter {
         pair(w, 0, "BLOCK_RECORD"); pair(w, 5, h);
         pair(w, 330, H_BR_TABLE);
         pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbBlockTableRecord");
-        pair(w, 2, name); pair(w, 70, "0");
+        pair(w, 2, name);
+        pair(w, 70, "0");
+        pair(w, 280, "1"); // 参考文件有此项
+        pair(w, 281, "0"); // 参考文件有此项
     }
 
     private void writeR2000Blocks(LineWriter w) throws IOException {
@@ -331,9 +352,12 @@ public class DXFWriter {
 
     private void writeBlockDef(LineWriter w, String hBlock, String hEndblk,
                                 String hBR, String name) throws IOException {
+        boolean isPaper = name.contains("Paper_Space");
         pair(w, 0, "BLOCK"); pair(w, 5, hBlock);
         pair(w, 330, hBR);
-        pair(w, 100, "AcDbEntity"); pair(w, 8, "0");
+        pair(w, 100, "AcDbEntity");
+        if (isPaper) pair(w, 67, "1"); // 图纸空间标志（参考文件有此项）
+        pair(w, 8, "0");
         pair(w, 100, "AcDbBlockBegin");
         pair(w, 2, name); pair(w, 70, "0");
         pair(w, 10, fmt(0.0)); pair(w, 20, fmt(0.0)); pair(w, 30, fmt(0.0));
@@ -341,7 +365,9 @@ public class DXFWriter {
 
         pair(w, 0, "ENDBLK"); pair(w, 5, hEndblk);
         pair(w, 330, hBR);
-        pair(w, 100, "AcDbEntity"); pair(w, 8, "0");
+        pair(w, 100, "AcDbEntity");
+        if (isPaper) pair(w, 67, "1"); // 图纸空间标志
+        pair(w, 8, "0");
         pair(w, 100, "AcDbBlockEnd");
     }
 
