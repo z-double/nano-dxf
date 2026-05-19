@@ -10,7 +10,7 @@
     <packaging>jar</packaging>
 
     <name>NanoDXF</name>
-    <description>A lightweight DXF file format parser targeting GIS/CAD use cases</description>
+    <description>一个轻量级的 DXF 文件格式解析器，面向 GIS/CAD 应用场景</description>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
