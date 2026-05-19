@@ -248,9 +248,10 @@ public class DXFWriter {
     private void writeR2000Header(LineWriter w) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "HEADER");
         pair(w, 9, "$ACADVER");    pair(w, 1, config.getVersion().getVersionString());
-        // 编码声明：以实际 encoding 为准（GBK→ANSI_936），不依赖版本
+        // $DWGCODEPAGE 必须是 Windows Code Page 名称，不能写 "UTF-8"
+        // GBK → ANSI_936；其他 → ANSI_1252（西欧，ASCII 兼容）
         pair(w, 9, "$DWGCODEPAGE");
-        pair(w, 3, "GBK".equalsIgnoreCase(config.getEncoding()) ? "ANSI_936" : "UTF-8");
+        pair(w, 3, "GBK".equalsIgnoreCase(config.getEncoding()) ? "ANSI_936" : "ANSI_1252");
         pair(w, 9, "$INSUNITS");   pair(w, 70, "6");
         pair(w, 9, "$LTSCALE");    pair(w, 40, fmt(1.0));
         pair(w, 9, "$EXTMIN");

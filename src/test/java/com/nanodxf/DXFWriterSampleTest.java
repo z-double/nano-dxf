@@ -46,24 +46,119 @@ class DXFWriterSampleTest {
     private static final int ACI_WHITE   = 7;  // 道路/注记
 
     /**
-     * 最简诊断文件：纯 ASCII 图层名、3 个实体，排除中文编码干扰。
-     * 若此文件能打开而 complex_survey.dxf 不能 → 中文编码问题。
-     * 若此文件也不能打开 → 结构问题。
+     * 诊断 A：只有 ENTITIES 段，无 HEADER/TABLES/BLOCKS（与九支渠文件同结构）。
+     * 若此文件能打开 → 我们的 HEADER/TABLES 有问题。
+     * 若也打不开 → DXFWriter 最基础写入有问题。
+     */
+    @Test
+    void generateDiagA_entitiesOnly() throws IOException {
+        Path outDir = Paths.get("target/sample");
+        Files.createDirectories(outDir);
+        Path outFile = outDir.resolve("diag_a_entities_only.dxf");
+
+        try (Writer w = new java.io.OutputStreamWriter(
+                new java.io.FileOutputStream(outFile.toFile()), "GBK")) {
+            // 手写最简 DXF，与九支渠文件结构完全一致
+            String content =
+                "  0\r\nSECTION\r\n  2\r\nENTITIES\r\n" +
+                "  0\r\nLINE\r\n  8\r\n0\r\n" +
+                " 10\r\n0.0\r\n 20\r\n0.0\r\n 30\r\n0.0\r\n" +
+                " 11\r\n100.0\r\n 21\r\n0.0\r\n 31\r\n0.0\r\n" +
+                "  0\r\nENDSEC\r\n  0\r\nEOF\r\n";
+            w.write(content);
+        }
+        System.out.println("诊断 A：" + outFile.toAbsolutePath());
+    }
+
+    /**
+     * 诊断 B：HEADER(AC1009) + ENTITIES，无 TABLES（R12 最简）。
+     * 若 A 能开、B 不能 → HEADER 有问题。
+     */
+    @Test
+    void generateDiagB_headerEntities() throws IOException {
+        Path outDir = Paths.get("target/sample");
+        Files.createDirectories(outDir);
+        Path outFile = outDir.resolve("diag_b_header_entities.dxf");
+
+        try (Writer w = new java.io.OutputStreamWriter(
+                new java.io.FileOutputStream(outFile.toFile()), "GBK")) {
+            String content =
+                "  0\r\nSECTION\r\n  2\r\nHEADER\r\n" +
+                "  9\r\n$ACADVER\r\n  1\r\nAC1009\r\n" +
+                "  9\r\n$DWGCODEPAGE\r\n  3\r\nANSI_936\r\n" +
+                "  9\r\n$INSUNITS\r\n 70\r\n6\r\n" +
+                "  0\r\nENDSEC\r\n" +
+                "  0\r\nSECTION\r\n  2\r\nENTITIES\r\n" +
+                "  0\r\nLINE\r\n  8\r\n0\r\n" +
+                " 10\r\n0.0\r\n 20\r\n0.0\r\n 30\r\n0.0\r\n" +
+                " 11\r\n100.0\r\n 21\r\n0.0\r\n 31\r\n0.0\r\n" +
+                "  0\r\nENDSEC\r\n  0\r\nEOF\r\n";
+            w.write(content);
+        }
+        System.out.println("诊断 B：" + outFile.toAbsolutePath());
+    }
+
+    /**
+     * 诊断 C：R12 完整格式（DXFWriter 的 R12 路径输出）。
+     * 若 B 能开、C 不能 → R12 TABLES 有问题。
+     */
+    @Test
+    void generateDiagC_r12Writer() throws IOException {
+        Path outDir = Paths.get("target/sample");
+        Files.createDirectories(outDir);
+        Path outFile = outDir.resolve("diag_c_r12_writer.dxf");
+
+        List<CADEntity> entities = List.of(
+            CADEntity.builder("LINE").layer("0")
+                .geometry(GF.createLineString(new Coordinate[]{
+                        new Coordinate(0, 0, 0), new Coordinate(100, 0, 0)}))
+                .build()
+        );
+        new DXFWriter(DXFWriteConfig.builder()
+                .version(com.nanodxf.model.DXFVersion.R12)
+                .coordinateDecimalPlaces(4)
+                .build()).write(entities, outFile);
+        System.out.println("诊断 C：" + outFile.toAbsolutePath());
+    }
+
+    /**
+     * 诊断 D：R2000 完整格式，GBK 编码，单一 LINE 实体。
+     * 若 C 能开、D 不能 → R2000 结构有问题。
+     */
+    @Test
+    void generateDiagD_r2000Single() throws IOException {
+        Path outDir = Paths.get("target/sample");
+        Files.createDirectories(outDir);
+        Path outFile = outDir.resolve("diag_d_r2000_single.dxf");
+
+        List<CADEntity> entities = List.of(
+            CADEntity.builder("LINE").layer("0")
+                .geometry(GF.createLineString(new Coordinate[]{
+                        new Coordinate(0, 0, 0), new Coordinate(100, 0, 0)}))
+                .build()
+        );
+        new DXFWriter(DXFWriteConfig.builder()
+                .version(com.nanodxf.model.DXFVersion.R2000)
+                // 不指定 encoding → 默认 GBK → $DWGCODEPAGE ANSI_936
+                .coordinateDecimalPlaces(4)
+                .build()).write(entities, outFile);
+        System.out.println("诊断 D：" + outFile.toAbsolutePath());
+    }
+
+    /**
+     * 旧的最简 ASCII 诊断文件（保留，修正了 encoding）。
      */
     @Test
     void generateMinimalAsciiDxf() throws IOException {
         List<CADEntity> entities = new ArrayList<>();
-        // LINE
         entities.add(CADEntity.builder("LINE").layer("Road")
                 .geometry(GF.createLineString(new Coordinate[]{
                         new Coordinate(0, 0, 0), new Coordinate(100, 0, 0)}))
                 .property("colorAci", 7).build());
-        // POINT with elevation
         entities.add(CADEntity.builder("POINT").layer("Survey")
                 .geometry(GF.createPoint(new Coordinate(50, 50, 25.3)))
                 .property("colorAci", 1)
                 .property("elevation", 25.3).build());
-        // Closed LWPOLYLINE (rectangle)
         entities.add(CADEntity.builder("LWPOLYLINE").layer("Building")
                 .geometry(closedRing(c(10,10), c(40,10), c(40,30), c(10,30)))
                 .property("colorAci", 3).build());
@@ -74,12 +169,11 @@ class DXFWriterSampleTest {
 
         new DXFWriter(DXFWriteConfig.builder()
                 .version(com.nanodxf.model.DXFVersion.R2000)
-                .encoding("UTF-8")
+                // 不指定 encoding → 默认 GBK → $DWGCODEPAGE ANSI_936（修正了 UTF-8 问题）
                 .coordinateDecimalPlaces(4)
                 .build()).write(entities, outFile);
 
         System.out.println("最简 ASCII 文件：" + outFile.toAbsolutePath());
-        // 验证可被解析
         ParseResult r = new CADParser(
                 ParseConfig.builder().applyUnitConversion(false).build())
                 .parse(outFile);
