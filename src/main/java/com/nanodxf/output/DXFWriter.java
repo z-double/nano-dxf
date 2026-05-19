@@ -247,9 +247,16 @@ public class DXFWriter {
 
     private void writeR2000Header(LineWriter w) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "HEADER");
-        pair(w, 9, "$ACADVER"); pair(w, 1, config.getVersion().getVersionString());
-        pair(w, 9, "$INSUNITS"); pair(w, 70, "6");
-        pair(w, 9, "$LTSCALE"); pair(w, 40, fmt(1.0));
+        pair(w, 9, "$ACADVER");    pair(w, 1, config.getVersion().getVersionString());
+        // 编码声明：R2007+ 用 UTF-8，以下用 ANSI_936（GBK，AutoCAD 中文必须）
+        pair(w, 9, "$DWGCODEPAGE");
+        pair(w, 3, config.getVersion().before(DXFVersion.R2007) ? "ANSI_936" : "UTF-8");
+        pair(w, 9, "$INSUNITS");   pair(w, 70, "6");
+        pair(w, 9, "$LTSCALE");    pair(w, 40, fmt(1.0));
+        pair(w, 9, "$EXTMIN");
+        pair(w, 10, fmt(0.0)); pair(w, 20, fmt(0.0)); pair(w, 30, fmt(0.0));
+        pair(w, 9, "$EXTMAX");
+        pair(w, 10, fmt(0.0)); pair(w, 20, fmt(0.0)); pair(w, 30, fmt(0.0));
         pair(w, 0, "ENDSEC");
     }
 
@@ -258,14 +265,18 @@ public class DXFWriter {
 
         // BLOCK_RECORD 表（*Model_Space + *Paper_Space）
         pair(w, 0, "TABLE"); pair(w, 2, "BLOCK_RECORD");
-        pair(w, 5, H_BR_TABLE); pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "2");
+        pair(w, 5, H_BR_TABLE);
+        pair(w, 330, "0");                        // ← owner = root（必须，缺失导致 eNullObjectId）
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "2");
         writeBlockRecord(w, H_MS_BR, "*Model_Space");
         writeBlockRecord(w, H_PS_BR, "*Paper_Space");
         pair(w, 0, "ENDTAB");
 
         // LTYPE 表
         pair(w, 0, "TABLE"); pair(w, 2, "LTYPE");
-        pair(w, 5, H_LT_TABLE); pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "1");
+        pair(w, 5, H_LT_TABLE);
+        pair(w, 330, "0");                        // ← owner = root
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "1");
         pair(w, 0, "LTYPE"); pair(w, 5, H_LT_CONT);
         pair(w, 330, H_LT_TABLE);
         pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbLinetypeTableRecord");
@@ -275,19 +286,24 @@ public class DXFWriter {
 
         // LAYER 表
         pair(w, 0, "TABLE"); pair(w, 2, "LAYER");
-        pair(w, 5, H_LY_TABLE); pair(w, 100, "AcDbSymbolTable");
+        pair(w, 5, H_LY_TABLE);
+        pair(w, 330, "0");                        // ← owner = root
+        pair(w, 100, "AcDbSymbolTable");
         pair(w, 70, String.valueOf(layers.size()));
         for (String l : layers) {
             pair(w, 0, "LAYER"); pair(w, 5, hex(lyH[0]++));
             pair(w, 330, H_LY_TABLE);
             pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbLayerTableRecord");
             pair(w, 2, l); pair(w, 70, "0"); pair(w, 62, "7"); pair(w, 6, "Continuous");
+            pair(w, 370, "-3");                   // ← 默认线宽（参考文件有此项）
         }
         pair(w, 0, "ENDTAB");
 
         // STYLE 表
         pair(w, 0, "TABLE"); pair(w, 2, "STYLE");
-        pair(w, 5, H_ST_TABLE); pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "1");
+        pair(w, 5, H_ST_TABLE);
+        pair(w, 330, "0");                        // ← owner = root
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "1");
         pair(w, 0, "STYLE"); pair(w, 5, H_ST_STD);
         pair(w, 330, H_ST_TABLE);
         pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbTextStyleTableRecord");
@@ -391,6 +407,7 @@ public class DXFWriter {
         pair(w, 100, "AcDbPolyline");
         pair(w, 90, String.valueOf(n));
         pair(w, 70, closed ? "1" : "0");
+        pair(w, 43, fmt(0.0));                    // ← constant width（参考文件有此项）
         double z0 = uniformZ(coords, n);
         if (!Double.isNaN(z0) && Math.abs(z0) > 1e-12) pair(w, 38, fmt(z0));
         for (int i = 0; i < n; i++) {
@@ -445,6 +462,7 @@ public class DXFWriter {
     private void writeR2000Objects(LineWriter w) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "OBJECTS");
         pair(w, 0, "DICTIONARY"); pair(w, 5, H_ROOT_DICT);
+        pair(w, 330, "0");                        // ← owner = root
         pair(w, 100, "AcDbDictionary"); pair(w, 281, "1");
         pair(w, 0, "ENDSEC");
     }

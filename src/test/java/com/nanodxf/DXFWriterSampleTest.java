@@ -64,8 +64,7 @@ class DXFWriterSampleTest {
         Path outFile = outDir.resolve("complex_survey.dxf");
 
         DXFWriteConfig config = DXFWriteConfig.builder()
-                // R12 默认：无 owner-handle 交叉引用，AutoCAD/QGIS/LibreCAD 均可打开
-                .version(com.nanodxf.model.DXFVersion.R12)
+                .version(com.nanodxf.model.DXFVersion.R2000)
                 .coordinateDecimalPlaces(3)
                 .build();
         new DXFWriter(config).write(entities, outFile);
