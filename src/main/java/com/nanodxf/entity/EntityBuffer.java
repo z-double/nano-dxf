@@ -17,18 +17,35 @@ import java.util.stream.Collectors;
  *
  * <p>同一 code 可能出现多次（如 LWPOLYLINE 的顶点 code 10/20），
  * 使用 {@link #all(int)} 获取全部值，{@link #first(int)} 只取第一个。
+ *
+ * <p><b>子实体（children）</b>：
+ * 对于 POLYLINE（子实体为 VERTEX）和 INSERT（子实体为 ATTRIB），
+ * 相关子实体的 group code 会以独立 {@link EntityBuffer} 的形式存放在
+ * {@link #getChildren()} 中。其他 handler 可安全忽略此列表。
  */
 public class EntityBuffer {
     private final List<GroupCodePair> pairs = new ArrayList<>();
+    /** POLYLINE 的 VERTEX 缓冲、INSERT 的 ATTRIB 缓冲等子实体数据。 */
+    private final List<EntityBuffer> children = new ArrayList<>();
 
     /** 追加一个 group code 对。 */
     public void add(GroupCodePair pair) {
         pairs.add(pair);
     }
 
+    /** 追加一个子实体缓冲（由 EntitiesParser 填充，handler 只读）。 */
+    public void addChild(EntityBuffer child) {
+        children.add(child);
+    }
+
     /** 返回所有 group code 对（只读视图）。 */
     public List<GroupCodePair> all() {
         return Collections.unmodifiableList(pairs);
+    }
+
+    /** 返回所有子实体缓冲（只读视图）。 */
+    public List<EntityBuffer> getChildren() {
+        return Collections.unmodifiableList(children);
     }
 
     /** 返回第一个指定 code 的值；若不存在返回空。 */
