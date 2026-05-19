@@ -3,7 +3,12 @@ package com.nanodxf;
 import com.nanodxf.core.DXFReader;
 import com.nanodxf.core.GroupCodePair;
 import com.nanodxf.core.SectionDispatcher;
+import com.nanodxf.entity.CADEntity;
+import com.nanodxf.geometry.UnitConverter;
 import com.nanodxf.model.DXFContext;
+import org.locationtech.jts.geom.CoordinateSequence;
+import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.util.GeometryTransformer;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -16,6 +21,7 @@ import java.nio.file.Path;
  * <ol>
  *   <li>打开 DXFReader（自动编码检测），驱动 group code 流</li>
  *   <li>识别 SECTION 边界，通过 {@link SectionDispatcher} 分发到各段解析器</li>
+ *   <li>单位换算：若 {@code $INSUNITS} 非米，将所有实体坐标换算为米</li>
  *   <li>汇总 DXFContext 中的实体、错误、跳过类型、元数据，组装 {@link ParseResult}</li>
  * </ol>
  *
@@ -33,6 +39,8 @@ import java.nio.file.Path;
  * }</pre>
  */
 public class CADParser {
+
+    private static final UnitConverter UNIT_CONVERTER = new UnitConverter();
 
     private final ParseConfig config;
     private final SectionDispatcher dispatcher = new SectionDispatcher();
@@ -81,6 +89,11 @@ public class CADParser {
             }
         }
 
+        // 单位换算：将所有坐标统一换算为米
+        if (config.isApplyUnitConversion()) {
+            applyUnitConversion(ctx);
+        }
+
         long elapsed = System.currentTimeMillis() - startMs;
         int entityCount = ctx.entities.size();
         int errorCount  = (int) ctx.errors.stream()
@@ -100,5 +113,50 @@ public class CADParser {
         ctx.errors.forEach(builder::addError);
 
         return builder.build();
+    }
+
+    // -------------------------------------------------------------------------
+    // 单位换算
+    // -------------------------------------------------------------------------
+
+    /**
+     * 根据 {@code $INSUNITS} 将所有实体坐标换算为米。
+     * 系数为 1.0（已是米或未知单位）时跳过，不做任何修改。
+     */
+    private void applyUnitConversion(DXFContext ctx) {
+        int insunits = ctx.metadata.getInsunits();
+        double factor = UNIT_CONVERTER.scaleFactor(insunits);
+        if (factor == 1.0) return; // 无需换算
+
+        ctx.entities.replaceAll(e -> scaleEntity(e, factor));
+    }
+
+    /** 对单个实体的所有坐标乘以换算系数，同时更新 elevation 属性。 */
+    private static CADEntity scaleEntity(CADEntity entity, double factor) {
+        if (entity.geometry() == null) return entity;
+
+        Geometry scaled = new GeometryTransformer() {
+            @Override
+            protected CoordinateSequence transformCoordinates(
+                    CoordinateSequence coords, Geometry parent) {
+                CoordinateSequence copy = coords.copy();
+                for (int i = 0; i < copy.size(); i++) {
+                    copy.setOrdinate(i, 0, coords.getX(i) * factor);
+                    copy.setOrdinate(i, 1, coords.getY(i) * factor);
+                    double z = coords.getOrdinate(i, 2);
+                    if (!Double.isNaN(z)) copy.setOrdinate(i, 2, z * factor);
+                }
+                return copy;
+            }
+        }.transform(entity.geometry());
+
+        CADEntity result = entity.withGeometry(scaled);
+
+        // elevation 属性与 Z 坐标同步换算
+        Object elev = result.getProperties().get("elevation");
+        if (elev instanceof Number n) {
+            result = result.withProperty("elevation", n.doubleValue() * factor);
+        }
+        return result;
     }
 }

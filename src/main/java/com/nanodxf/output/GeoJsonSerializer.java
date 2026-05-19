@@ -2,6 +2,7 @@ package com.nanodxf.output;
 
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.model.DrawingMetadata;
+import com.nanodxf.xdata.XDataEntry;
 import org.locationtech.jts.geom.*;
 
 import java.util.List;
@@ -199,8 +200,6 @@ public class GeoJsonSerializer {
           .append(",\"handle\":\"").append(escapeJson(entity.getHandle())).append('"')
           .append(",\"layer\":\"").append(escapeJson(entity.getLayer())).append('"');
         entity.getProperties().forEach((k, v) -> {
-            // xdata 结构复杂，序列化为 null 占位（避免递归失控）
-            if ("xdata".equals(k)) { sb.append(",\"xdata\":null"); return; }
             sb.append(",\"").append(escapeJson(k)).append("\":");
             appendValue(sb, v);
         });
@@ -226,6 +225,9 @@ public class GeoJsonSerializer {
                 sb.append(arr[i]);
             }
             sb.append(']');
+        } else if (value instanceof XDataEntry xe) {
+            sb.append("{\"code\":").append(xe.code())
+              .append(",\"value\":\"").append(escapeJson(xe.value())).append("\"}");
         } else if (value instanceof Map<?, ?> map) {
             sb.append('{');
             boolean first = true;

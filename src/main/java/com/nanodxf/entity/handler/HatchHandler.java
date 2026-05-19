@@ -28,7 +28,8 @@ import java.util.List;
  * <ul>
  *   <li>类型 1（直线）：code 10/20（起点）、11/21（终点）</li>
  *   <li>类型 2（圆弧）：code 10/20（圆心）、40（半径）、50（起角）、51（终角）、73（CCW）</li>
- *   <li>类型 3/4（椭圆弧/样条）：TODO Phase 3</li>
+ *   <li>类型 3（椭圆弧）：code 10/20（圆心）、11/21（长轴端点向量）、40（短长轴比）、50/51（起终角度）、73（CCW）</li>
+ *   <li>类型 4（样条）：TODO</li>
  * </ul>
  *
  * <p>外/内边界判断：第一条路径为外边界（shell），其余为内边界（hole）。
@@ -124,7 +125,8 @@ public class HatchHandler implements EntityHandler {
         switch (edgeType) {
             case 1 -> readLineEdge(pairs, pos, coords);
             case 2 -> readArcEdge(pairs, pos, coords, tolerance);
-            // 3=椭圆弧, 4=样条: TODO Phase 3
+            case 3 -> readEllipseArcEdge(pairs, pos, coords, tolerance);
+            // 4=样条: TODO
         }
     }
 
@@ -174,6 +176,60 @@ public class HatchHandler implements EntityHandler {
         if (arcPts.isEmpty()) return;
         if (coords.isEmpty()) coords.add(arcPts.get(0));
         for (int i = 1; i < arcPts.size(); i++) coords.add(arcPts.get(i));
+    }
+
+    /**
+     * 椭圆弧边段（type 3）。
+     * code 10/20=圆心，11/21=长轴端点向量，40=短长轴比，
+     * 50/51=起终角（度，参数角），73=CCW 标志。
+     */
+    private void readEllipseArcEdge(List<GroupCodePair> pairs, int[] pos,
+                                     List<Coordinate> coords, double tolerance) {
+        double cx = 0, cy = 0, mx = 1, my = 0;
+        double ratio = 1.0, startDeg = 0, endDeg = 360;
+        boolean ccw = true;
+
+        while (pos[0] < pairs.size()) {
+            GroupCodePair pair = pairs.get(pos[0]);
+            if (isEdgeBoundary(pair.code())) break;
+            pos[0]++;
+            switch (pair.code()) {
+                case 10 -> cx       = pair.asDouble();
+                case 20 -> cy       = pair.asDouble();
+                case 11 -> mx       = pair.asDouble();
+                case 21 -> my       = pair.asDouble();
+                case 40 -> ratio    = pair.asDouble();
+                case 50 -> startDeg = pair.asDouble();
+                case 51 -> endDeg   = pair.asDouble();
+                case 73 -> ccw      = pair.asInt() != 0;
+            }
+        }
+
+        double a = Math.sqrt(mx * mx + my * my);
+        double b = a * ratio;
+        if (a < 1e-12) return;
+
+        double theta = Math.atan2(my, mx);
+        double cosT  = Math.cos(theta), sinT = Math.sin(theta);
+
+        double startRad = Math.toRadians(startDeg);
+        double endRad   = Math.toRadians(endDeg);
+        double span = endRad - startRad;
+        if (!ccw) span = -span;
+        if (span <= 0) span += 2 * Math.PI;
+
+        double rMax = Math.max(a, b);
+        int n = (int) Math.ceil(span / (2 * Math.acos(1.0 - tolerance / rMax)));
+        n = Math.max(n, 8);
+
+        for (int i = 0; i <= n; i++) {
+            double t  = ccw ? startRad + span * i / n : startRad - span * i / n;
+            double ct = Math.cos(t), st = Math.sin(t);
+            double x  = cx + a * ct * cosT - b * st * sinT;
+            double y  = cy + a * ct * sinT + b * st * cosT;
+            Coordinate c = new Coordinate(x, y);
+            if (coords.isEmpty() || i > 0) coords.add(c);
+        }
     }
 
     // -------------------------------------------------------------------------

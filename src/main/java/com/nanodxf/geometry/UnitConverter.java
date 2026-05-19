@@ -46,4 +46,15 @@ public class UnitConverter {
     public double toMeter(double value, int insunits) {
         return value * TO_METER.getOrDefault(insunits, 1.0);
     }
+
+    /**
+     * 返回 {@code $INSUNITS} 对应的换算系数（单位→米）。
+     * 系数为 1.0 时无需换算（已是米，或未知单位）。
+     *
+     * @param insunits DXF {@code $INSUNITS} 变量值
+     * @return 换算系数，如毫米返回 0.001，英寸返回 0.0254
+     */
+    public double scaleFactor(int insunits) {
+        return TO_METER.getOrDefault(insunits, 1.0);
+    }
 }

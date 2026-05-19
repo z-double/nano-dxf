@@ -32,12 +32,19 @@ public class ParseConfig {
      */
     private final String crs;
 
+    /**
+     * 是否根据 {@code $INSUNITS} 将坐标换算为米，默认 true。
+     * 设为 false 时坐标原样输出（保留原始 CAD 单位）。
+     */
+    private final boolean applyUnitConversion;
+
     private ParseConfig(Builder builder) {
         this.arcTolerance = builder.arcTolerance;
         this.proximityThreshold = builder.proximityThreshold;
         this.coordinateDecimalPlaces = builder.coordinateDecimalPlaces;
         this.zStrategy = builder.zStrategy;
         this.crs = builder.crs;
+        this.applyUnitConversion = builder.applyUnitConversion;
     }
 
     public double getArcTolerance() { return arcTolerance; }
@@ -45,6 +52,7 @@ public class ParseConfig {
     public int getCoordinateDecimalPlaces() { return coordinateDecimalPlaces; }
     public ZStrategy getZStrategy() { return zStrategy; }
     public String getCrs() { return crs; }
+    public boolean isApplyUnitConversion() { return applyUnitConversion; }
 
     public static Builder builder() { return new Builder(); }
     public static ParseConfig defaults() { return builder().build(); }
@@ -55,6 +63,7 @@ public class ParseConfig {
         private int coordinateDecimalPlaces = 4;
         private ZStrategy zStrategy = ZStrategy.KEEP_3D;
         private String crs = null;
+        private boolean applyUnitConversion = true;
 
         /**
          * 弧线/样条离散弦高误差（坐标单位），必须 &gt; 0，默认 0.001。
@@ -93,6 +102,13 @@ public class ParseConfig {
          * 不传则输出中不含 crs 字段。
          */
         public Builder crs(String crs) { this.crs = crs; return this; }
+
+        /**
+         * 是否将坐标按 {@code $INSUNITS} 换算为米，默认 true。
+         * 毫米单位（{@code $INSUNITS=4}）的 DXF 若不换算，坐标量级会差 1000 倍。
+         * 设为 false 保留原始 CAD 坐标（适用于已确认为米的文件或不需要地理坐标的场景）。
+         */
+        public Builder applyUnitConversion(boolean v) { this.applyUnitConversion = v; return this; }
 
         /** 构建并返回不可变的 {@link ParseConfig}，同时校验所有参数合法性。 */
         public ParseConfig build() { return new ParseConfig(this); }
