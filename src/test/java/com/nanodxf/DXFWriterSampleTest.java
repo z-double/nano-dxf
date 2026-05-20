@@ -19,7 +19,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 生成复杂 DXF 样例文件，覆盖典型测绘场景：
+ * 1生成复杂 DXF 样例文件，覆盖典型测绘场景：
  * <ul>
  *   <li>建筑：矩形轮廓、L 形建筑、带内院的复合建筑</li>
  *   <li>道路：主干道（多段折线）、支路、小巷</li>
