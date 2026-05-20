@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maven 配置模板（Central Portal 方案，2024+ 新账号适用）
+  =========================================================
+  使用步骤：
+    1. 将本文件复制到你的 Maven 用户目录：
+       Windows : %USERPROFILE%\.m2\settings.xml
+       macOS   : ~/.m2/settings.xml
+    2. 将 <<<...>>> 标记的占位符替换为真实值
+    3. 不要把填好的 settings.xml 提交到版本库（含密码）
+  =========================================================
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+          http://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+    <servers>
+        <!--
+          Sonatype Central Portal Token
+          获取方式：
+            1. 登录 https://central.sonatype.com
+            2. 点击右上角头像 → Account → Generate User Token
+            3. 复制 tokenUsername 和 tokenPassword
+        -->
+        <server>
+            <id>central</id>
+            <username><<<Central Portal tokenUsername>>></username>
+            <password><<<Central Portal tokenPassword>>></password>
+        </server>
+    </servers>
+
+    <profiles>
+        <profile>
+            <id>release</id>
+            <activation>
+                <!-- 执行 mvn deploy 时自动激活 -->
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <!--
+                  GPG 密钥配置
+                  Windows 使用 Gpg4win：https://gpg4win.org/
+                  生成密钥：gpg --gen-key
+                  上传公钥：gpg --keyserver keyserver.ubuntu.com --send-keys <<<KEY_ID>>>
+                -->
+                <gpg.executable>gpg</gpg.executable>
+                <gpg.passphrase><<<你的 GPG 密钥密码>>></gpg.passphrase>
+            </properties>
+        </profile>
+    </profiles>
+
+</settings>

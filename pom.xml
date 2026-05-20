@@ -11,6 +11,29 @@
 
     <name>NanoDXF</name>
     <description>一个轻量级的 DXF 文件格式解析器，面向 GIS/CAD 应用场景</description>
+    <url>https://github.com/your-username/nano-dxf</url>
+
+    <licenses>
+        <license>
+            <name>The Apache License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>z-double</name>
+            <email>1601620119@qq.com</email>
+            <organization>nano-dxf</organization>
+            <organizationUrl>https://github.com/Z-double</organizationUrl>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/Z-double/nano-dxf.git</connection>
+        <developerConnection>scm:git:ssh://github.com/Z-double/nano-dxf.git</developerConnection>
+        <url>https://github.com/Z-double/nano-dxf/tree/main</url>
+    </scm>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
@@ -44,6 +67,7 @@
         </dependency>
     </dependencies>
 
+
     <build>
         <plugins>
             <plugin>
@@ -63,6 +87,79 @@
                 <configuration>
                     <source>17</source>
                     <target>17</target>
+                </configuration>
+            </plugin>
+
+            <!-- 源码插件 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Javadoc 插件 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.6.3</version>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <doclint>none</doclint>
+                            <encoding>UTF-8</encoding>
+                            <charset>UTF-8</charset>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- GPG 签名插件 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                        <configuration>
+                            <gpgArguments>
+                                <arg>--pinentry-mode</arg>
+                                <arg>loopback</arg>
+                            </gpgArguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Maven Central Portal 发布插件（2024+ 新方案，替代旧版 nexus-staging） -->
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.5.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <!-- 与 settings.xml 中 <server id="central"> 对应 -->
+                    <publishingServerId>central</publishingServerId>
+                    <!-- 验证通过后自动发布，无需手动在 portal 点 Release -->
+                    <autoPublish>true</autoPublish>
+                    <!-- 等待发布完成（约 5-10 分钟）再返回，便于 CI 确认结果 -->
+                    <waitUntil>published</waitUntil>
                 </configuration>
             </plugin>
         </plugins>

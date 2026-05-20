@@ -24,6 +24,8 @@ hs_err_pid*
 
 # Maven
 target/
+# 真实 settings.xml 含密码，不提交（模板 settings-template.xml 可提交）
+settings.xml
 
 # IntelliJ IDEA
 .idea/
