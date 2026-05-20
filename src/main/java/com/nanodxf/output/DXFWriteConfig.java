@@ -48,9 +48,14 @@ public class DXFWriteConfig {
 
         /**
          * 输出版本，默认 {@link DXFVersion#R2007}（浩辰 CAD 最低支持版本）。
-         * R12 格式更简单但现代 AutoCAD（2020+）可能有兼容问题；
-         * R2007+ 路径会自动补全所有子类标记和 owner handle 交叉引用。
-         * 注意：浩辰 CAD 不支持 R2000/R2004，最低要求 R2007（AC1021）。
+         * 写出器仅实现两条路径：
+         * <ul>
+         *   <li>{@link DXFVersion#R12}：最简兼容格式，HEADER + TABLES + BLOCKS + ENTITIES</li>
+         *   <li>其他所有版本（R2000/R2004/R2007/R2010+）：统一走 R2007 完整路径，
+         *       {@code $ACADVER} 写入所设版本字符串，但结构始终为完整 R2007 格式。</li>
+         * </ul>
+         * 推荐：R12（最广泛兼容）或 R2007（浩辰 CAD / 中望 CAD）。
+         * R2000 / R2004 会产生版本头与结构不完全一致的文件，不建议使用。
          */
         public Builder version(DXFVersion v)            { this.version = v; return this; }
 

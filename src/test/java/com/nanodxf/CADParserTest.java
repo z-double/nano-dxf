@@ -1,7 +1,10 @@
 package com.nanodxf;
 
 import com.nanodxf.entity.CADEntity;
+import com.nanodxf.EntityProperty;
 import com.nanodxf.geometry.AciColorTable;
+import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.model.CADBlock;
 import com.nanodxf.model.DXFVersion;
 import com.nanodxf.output.DXFWriteConfig;
 import com.nanodxf.output.DXFWriter;
@@ -10,6 +13,8 @@ import com.nanodxf.text.MTextCleaner;
 import com.nanodxf.xdata.FeatureCodeRegistry;
 import com.nanodxf.xdata.FeatureCodeRegistry.FeatureCodeInfo;
 import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.Point;
@@ -36,6 +41,8 @@ import static org.assertj.core.api.Assertions.*;
  * Phase 4：容错（截断/循环块/未知 SECTION/零长度线）、性能基线
  */
 class CADParserTest {
+
+    private static final GeometryFactory GF = GeometryBuilder.factory();
 
     // =========================================================================
     // DXF 构建辅助
@@ -698,15 +705,123 @@ class CADParserTest {
     }
 
     @Test
-    void dxfWriteConfig_encodingAutoSelect_r2000usesGbk() {
-        DXFWriteConfig cfg = DXFWriteConfig.builder().version(DXFVersion.R2000).build();
-        assertThat(cfg.getEncoding()).isEqualTo("GBK");
+    void dxfWriteConfig_encodingAutoSelect_preR2007usesGbk() {
+        // R2007 以前的版本（含 R12 / R2000 / R2004）默认使用 GBK 编码
+        DXFWriteConfig cfgR12   = DXFWriteConfig.builder().version(DXFVersion.R12).build();
+        DXFWriteConfig cfgR2000 = DXFWriteConfig.builder().version(DXFVersion.R2000).build();
+        assertThat(cfgR12.getEncoding()).isEqualTo("GBK");
+        assertThat(cfgR2000.getEncoding()).isEqualTo("GBK");
     }
 
     @Test
     void dxfWriteConfig_encodingAutoSelect_r2007usesUtf8() {
         DXFWriteConfig cfg = DXFWriteConfig.builder().version(DXFVersion.R2007).build();
         assertThat(cfg.getEncoding()).isEqualTo("UTF-8");
+    }
+
+    // =========================================================================
+    // v1.2.0 写出：ARC / CIRCLE / HATCH / INSERT + 块定义
+    // =========================================================================
+
+    @Test
+    void dxfWriter_arc_shouldProduceArcEntity() throws Exception {
+        // ARC 写出约定：type=ARC, geometry=Point(圆心), properties={radius,startAngle,endAngle}
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.ARC)
+                .layer("弧形")
+                .geometry(GF.createPoint(new Coordinate(50, 50)))
+                .property(EntityProperty.RADIUS,      20.0)
+                .property(EntityProperty.START_ANGLE,  0.0)
+                .property(EntityProperty.END_ANGLE,  270.0)
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
+        String dxf = sw.toString();
+
+        assertThat(dxf).contains("ARC");
+        assertThat(dxf).contains("50.0000");  // 圆心 x
+        assertThat(dxf).contains("20.0000");  // 半径
+        assertThat(dxf).contains("270.0000"); // 终止角
+    }
+
+    @Test
+    void dxfWriter_circle_shouldProduceCircleEntity() throws Exception {
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.CIRCLE)
+                .layer("圆形")
+                .geometry(GF.createPoint(new Coordinate(100, 100)))
+                .property(EntityProperty.RADIUS, 15.0)
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
+        String dxf = sw.toString();
+
+        assertThat(dxf).contains("CIRCLE");
+        assertThat(dxf).contains("15.0000"); // 半径
+    }
+
+    @Test
+    void dxfWriter_hatch_solidFill_roundTrip() throws Exception {
+        // HATCH 写出：type=HATCH + Polygon → 解析回来应为 HATCH 类型、Polygon 几何
+        Coordinate[] coords = {
+            new Coordinate(0, 0), new Coordinate(10, 0),
+            new Coordinate(10, 10), new Coordinate(0, 10), new Coordinate(0, 0)
+        };
+        Polygon poly = GF.createPolygon(coords);
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.HATCH)
+                .layer("填充").geometry(poly)
+                .property(EntityProperty.HATCH_PATTERN, "SOLID")
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
+        String dxf = sw.toString();
+
+        assertThat(dxf).contains("HATCH");
+        assertThat(dxf).contains("SOLID");
+
+        // 解析回来应为 HATCH 实体，几何为 Polygon
+        ParseResult result = new CADParser(
+            ParseConfig.builder().applyUnitConversion(false).build())
+            .parse(new StringReader(dxf));
+        assertThat(result.getEntities()).hasSize(1);
+        CADEntity e = result.getEntities().get(0);
+        assertThat(e.getType()).isEqualTo("HATCH");
+        assertThat(e.geometry()).isInstanceOf(Polygon.class);
+    }
+
+    @Test
+    void dxfWriter_insertWithBlock_shouldContainBlockAndInsert() throws Exception {
+        // 块定义 + INSERT：BLOCKS 段应含块定义，ENTITIES 段应含 INSERT
+        CADBlock block = new CADBlock("SYM");
+        block.setInsertionPoint(0, 0, 0);
+        block.addEntity(CADEntity.builder(CADEntity.Types.LINE)
+            .layer("0")
+            .geometry(GF.createLineString(new Coordinate[]{
+                new Coordinate(-1, 0), new Coordinate(1, 0)}))
+            .build());
+
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.INSERT)
+                .layer("符号")
+                .geometry(GF.createPoint(new Coordinate(50, 50)))
+                .property(EntityProperty.BLOCK_NAME, "SYM")
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build())
+            .write(List.of(block), entities, sw);
+        String dxf = sw.toString();
+
+        assertThat(dxf).contains("BLOCK");
+        assertThat(dxf).contains("SYM");
+        assertThat(dxf).contains("INSERT");
+        // BLOCKS 段必须在 ENTITIES 段之前
+        assertThat(dxf.indexOf("SECTION\r\n  2\r\nBLOCKS"))
+            .isLessThan(dxf.indexOf("SECTION\r\n  2\r\nENTITIES"));
     }
 
     @Test
