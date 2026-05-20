@@ -737,11 +737,11 @@ public class DXFWriter {
         pair(w, 71, "0");   // not associative
         pair(w, 91, String.valueOf(numPaths));
 
-        // 外环边界路径（path type = 7: external + polyline + derived）
-        writeHatchBoundaryPath(w, poly.getExteriorRing().getCoordinates(), 7);
-        // 内环（洞）边界路径（path type = 23: inner + external + polyline + derived）
+        // 外环边界路径（path type = 1: External，edge 格式，不含 Polyline bit=2）
+        writeHatchBoundaryPath(w, poly.getExteriorRing().getCoordinates(), 1);
+        // 内环（洞）边界路径（path type = 16: Outermost，bit 0 未置，HatchHandler 识别为洞）
         for (int i = 0; i < poly.getNumInteriorRing(); i++)
-            writeHatchBoundaryPath(w, poly.getInteriorRingN(i).getCoordinates(), 23);
+            writeHatchBoundaryPath(w, poly.getInteriorRingN(i).getCoordinates(), 16);
 
         pair(w, 75, "1");   // hatch style: normal
         pair(w, 76, "1");   // pattern type: predefined
@@ -749,18 +749,30 @@ public class DXFWriter {
         pair(w, 10, fmt(interior.getX())); pair(w, 20, fmt(interior.getY()));
     }
 
+    /**
+     * 写出 HATCH 边界路径（edge-line 格式，与 HatchHandler 解析格式一致）。
+     *
+     * <p>DXF 有两种边界路径格式：
+     * <ul>
+     *   <li>Polyline 格式（pathType bit 2=4 置位）：92/72(hasBulge)/73(isClosed)/93(n)/10/20</li>
+     *   <li>Edge 格式（bit 2 不置位）：92/93(edges)/[72=1/10/20/11/21 per edge]</li>
+     * </ul>
+     * HatchHandler 解析的是 edge 格式，故写出必须使用 edge 格式。
+     */
     private void writeHatchBoundaryPath(LineWriter w, Coordinate[] coords,
                                          int pathType) throws IOException {
-        int n = trimClosedEnd(coords, true); // HATCH 边界路径总是闭合的
+        int n = trimClosedEnd(coords, true);
         if (n < 2) return;
+        // edge 格式：n 个顶点 = n 条直线边段（首尾相接，闭合）
         pair(w, 92, String.valueOf(pathType));
-        pair(w, 72, "0");   // hasBulge = 0
-        pair(w, 73, "1");   // isClosed = 1
-        pair(w, 93, String.valueOf(n));
+        pair(w, 93, String.valueOf(n));   // 边段数 = 顶点数
         for (int i = 0; i < n; i++) {
-            pair(w, 10, fmt(coords[i].x)); pair(w, 20, fmt(coords[i].y));
+            int next = (i + 1) % n;
+            pair(w, 72, "1");   // edge type = line (直线边段)
+            pair(w, 10, fmt(coords[i].x));    pair(w, 20, fmt(coords[i].y));
+            pair(w, 11, fmt(coords[next].x)); pair(w, 21, fmt(coords[next].y));
         }
-        pair(w, 97, "0");   // source objects count
+        pair(w, 97, "0");   // source objects count (non-associative)
     }
 
     private void writeInsertR2000(LineWriter w, Point p, CADEntity e,
