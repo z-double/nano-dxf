@@ -22,11 +22,32 @@
 
 ### Maven 依赖
 
+#### Maven Central（国际）
+
 ```xml
 <dependency>
-    <groupId>com.nanodxf</groupId>
+    <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
     <version>1.2.0</version>
+</dependency>
+```
+
+#### JitPack（国内可用，基于 Gitee）
+
+```xml
+<!-- 第一步：添加 JitPack 仓库 -->
+<repositories>
+    <repository>
+        <id>jitpack.io</id>
+        <url>https://jitpack.io</url>
+    </repository>
+</repositories>
+
+<!-- 第二步：添加依赖 -->
+<dependency>
+    <groupId>com.gitee.z-double</groupId>
+    <artifactId>nano-dxf</artifactId>
+    <version>v1.2.0</version>
 </dependency>
 ```
 
