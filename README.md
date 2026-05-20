@@ -26,7 +26,7 @@
 <dependency>
     <groupId>com.nanodxf</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
 </dependency>
 ```
 
@@ -140,7 +140,7 @@ List<CADEntity> entities = List.of(
         .layer("道路")
         .geometry(GF.createLineString(new Coordinate[]{
             new Coordinate(0, 0), new Coordinate(100, 0)}))
-        .property("colorAci", 7)
+        .property(EntityProperty.COLOR_ACI, AciColor.WHITE)
         .build()
 );
 
@@ -152,6 +152,49 @@ DXFWriteConfig config = DXFWriteConfig.builder()
     .build();
 
 new DXFWriter(config).write(entities, Paths.get("output.dxf"));
+```
+
+### 写出 ARC / CIRCLE / HATCH / INSERT
+
+```java
+// ARC：圆心 Point + radius/startAngle/endAngle 属性
+entities.add(CADEntity.builder(CADEntity.Types.ARC)
+    .layer("弧形")
+    .geometry(GF.createPoint(new Coordinate(50, 50)))
+    .property(EntityProperty.RADIUS,      25.0)
+    .property(EntityProperty.START_ANGLE, 0.0)
+    .property(EntityProperty.END_ANGLE,   270.0)
+    .build());
+
+// CIRCLE：圆心 Point + radius 属性
+entities.add(CADEntity.builder(CADEntity.Types.CIRCLE)
+    .layer("圆形")
+    .geometry(GF.createPoint(new Coordinate(150, 50)))
+    .property(EntityProperty.RADIUS, 30.0)
+    .build());
+
+// HATCH SOLID：Polygon 几何（支持洞）
+entities.add(CADEntity.builder(CADEntity.Types.HATCH)
+    .layer("填充")
+    .geometry(polygon)
+    .property(EntityProperty.COLOR_ACI, AciColor.GREEN)
+    .build());
+
+// 块定义 + INSERT
+CADBlock symbol = new CADBlock("ARROW");
+symbol.setInsertionPoint(0, 0, 0);
+symbol.addEntity(CADEntity.builder(CADEntity.Types.LINE)
+    .layer("0").geometry(lineGeom).build());
+
+entities.add(CADEntity.builder(CADEntity.Types.INSERT)
+    .layer("符号")
+    .geometry(GF.createPoint(new Coordinate(100, 100)))
+    .property(EntityProperty.BLOCK_NAME, "ARROW")
+    .property(EntityProperty.SCALE_X, 2.0)
+    .build());
+
+// 写出时传入块定义列表
+new DXFWriter(config).write(List.of(symbol), entities, Paths.get("output.dxf"));
 ```
 
 ### DXFWriteConfig 参数
@@ -172,6 +215,10 @@ new DXFWriter(config).write(entities, Paths.get("output.dxf"));
 | `POINT` | `Point` | POINT |
 | `TEXT` | `Point` | TEXT（需 `text` 属性） |
 | `MTEXT` | `Point` | MTEXT（需 `text` 属性） |
+| `ARC` | `Point`（圆心） | ARC（需 `radius`/`startAngle`/`endAngle` 属性）|
+| `CIRCLE` | `Point`（圆心） | CIRCLE（需 `radius` 属性）|
+| `HATCH` | `Polygon`/`MultiPolygon` | HATCH（SOLID 填充，支持洞）|
+| `INSERT` | `Point`（插入点） | INSERT（需 `blockName` 属性）|
 | 任意 | `GeometryCollection` | 递归展开子几何 |
 
 ### 支持的实体属性（写出）
@@ -184,6 +231,15 @@ new DXFWriter(config).write(entities, Paths.get("output.dxf"));
 | `height` | `Double` | 文字高度（默认 2.5） |
 | `rotation` | `Double` | 文字旋转角度（度，默认 0） |
 | `style` | `String` | TEXT 文字样式（默认 "Standard"） |
+| `radius` | `Double` | ARC / CIRCLE 半径 |
+| `startAngle` | `Double` | ARC 起始角（度）|
+| `endAngle` | `Double` | ARC 终止角（度）|
+| `hatchPattern` | `String` | HATCH 图案名（默认 `"SOLID"`）|
+| `blockName` | `String` | INSERT 引用的块名 |
+| `scaleX`/`scaleY`/`scaleZ` | `Double` | INSERT 缩放因子（默认 1.0）|
+| `lineType` | `String` | 图层线型名（默认 `"Continuous"`）|
+| `lineWeight` | `Integer` | 图层线宽码（默认 -3=ByLayer）|
+| `xdata` | `Map` | XDATA 写出（地物编码保留）|
 
 ### 格式版本对比
 

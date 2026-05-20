@@ -134,6 +134,72 @@ public final class EntityProperty {
     public static final String XDATA = "xdata";
 
     // =========================================================================
+    // 几何参数（ARC / CIRCLE）
+    // =========================================================================
+
+    /**
+     * 半径（Double，坐标单位）。
+     * ARC / CIRCLE 写出时必须提供。对应 DXF code 40。
+     *
+     * <p>写出 ARC 示例：
+     * <pre>{@code
+     * CADEntity.builder(CADEntity.Types.ARC)
+     *     .layer("构筑物")
+     *     .geometry(GF.createPoint(new Coordinate(100, 200)))  // 圆心
+     *     .property(EntityProperty.RADIUS,      25.0)
+     *     .property(EntityProperty.START_ANGLE, 0.0)
+     *     .property(EntityProperty.END_ANGLE,   180.0)
+     *     .build();
+     * }</pre>
+     */
+    public static final String RADIUS = "radius";
+
+    /**
+     * 弧线起始角（Double，度，逆时针，相对 WCS X 轴正方向）。
+     * ARC 写出时必须提供。对应 DXF code 50。
+     */
+    public static final String START_ANGLE = "startAngle";
+
+    /**
+     * 弧线终止角（Double，度，逆时针，相对 WCS X 轴正方向）。
+     * ARC 写出时必须提供。对应 DXF code 51。
+     */
+    public static final String END_ANGLE = "endAngle";
+
+    // =========================================================================
+    // 线型与线宽
+    // =========================================================================
+
+    /**
+     * 线型名（String）。
+     * 图层级别的线型，对应 LAYER 表中 code 6。
+     * 默认值 {@code "Continuous"}（实线）。
+     * 非 Continuous 线型需在目标 CAD 软件中已加载对应线型文件（*.lin）。
+     *
+     * @see com.nanodxf.output.LineTypeName
+     */
+    public static final String LINETYPE = "lineType";
+
+    /**
+     * DXF 线宽码（Integer）。
+     * 图层级别的线宽，对应 LAYER 表中 code 370。
+     * 特殊值：-3=ByLayer（默认），-2=ByBlock，-1=Default。
+     * 实际线宽值（单位 1/100 mm）：0、5、9、13、15、18、20、25、30、35、40、50、53、60、70、80、90、100、106、120、140、158、200、211。
+     */
+    public static final String LINEWEIGHT = "lineWeight";
+
+    // =========================================================================
+    // HATCH 填充
+    // =========================================================================
+
+    /**
+     * HATCH 图案名（String）。
+     * 对应 DXF code 2（pattern name）。默认 {@code "SOLID"}（实心填充）。
+     * v1.2.0 写出器仅支持 SOLID，其他图案名不会生成图案定义段。
+     */
+    public static final String HATCH_PATTERN = "hatchPattern";
+
+    // =========================================================================
     // 块引用（INSERT）
     // =========================================================================
 
@@ -143,6 +209,21 @@ public final class EntityProperty {
      * INSERT 展开后，子实体上也会保留此属性以追踪来源。
      */
     public static final String BLOCK_NAME = "blockName";
+
+    /**
+     * INSERT X 方向缩放因子（Double）。默认 1.0。对应 DXF code 41。
+     */
+    public static final String SCALE_X = "scaleX";
+
+    /**
+     * INSERT Y 方向缩放因子（Double）。默认 1.0。对应 DXF code 42。
+     */
+    public static final String SCALE_Y = "scaleY";
+
+    /**
+     * INSERT Z 方向缩放因子（Double）。默认 1.0。对应 DXF code 43。
+     */
+    public static final String SCALE_Z = "scaleZ";
 
     // =========================================================================
     // 块属性（ATTRIB）

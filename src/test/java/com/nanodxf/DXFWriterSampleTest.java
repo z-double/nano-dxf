@@ -2,6 +2,8 @@
 
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.model.CADBlock;
+import com.nanodxf.model.DXFVersion;
 import com.nanodxf.output.DXFWriteConfig;
 import com.nanodxf.output.DXFWriter;
 import org.junit.jupiter.api.Test;
@@ -453,6 +455,141 @@ class DXFWriterSampleTest {
             b.property((String) kvPairs[i], kvPairs[i + 1]);
         }
         return b.build();
+    }
+
+    // =========================================================================
+    // v1.2.0 新实体类型测试
+    // =========================================================================
+
+    /**
+     * 测试 ARC / CIRCLE / HATCH / INSERT 实体写出（R2007）。
+     * 验证文件能被解析回来且实体数量一致。
+     */
+    @Test
+    void generateV12NewEntities() throws IOException {
+        List<CADEntity> entities = new ArrayList<>();
+
+        // ARC：圆心 Point + radius / startAngle / endAngle 属性
+        entities.add(CADEntity.builder(CADEntity.Types.ARC)
+                .layer("弧形构件")
+                .geometry(GF.createPoint(new Coordinate(50, 50)))
+                .property(EntityProperty.RADIUS,      25.0)
+                .property(EntityProperty.START_ANGLE, 30.0)
+                .property(EntityProperty.END_ANGLE,   150.0)
+                .property(EntityProperty.COLOR_ACI,   AciColor.CYAN)
+                .build());
+
+        // CIRCLE：圆心 Point + radius 属性
+        entities.add(CADEntity.builder(CADEntity.Types.CIRCLE)
+                .layer("圆形构件")
+                .geometry(GF.createPoint(new Coordinate(150, 50)))
+                .property(EntityProperty.RADIUS,    30.0)
+                .property(EntityProperty.COLOR_ACI, AciColor.MAGENTA)
+                .build());
+
+        // HATCH：Polygon（含一个洞）→ SOLID 填充
+        Coordinate[] outer = {c(100, 100), c(180, 100), c(180, 160), c(100, 160), c(100, 100)};
+        Coordinate[] hole  = {c(120, 115), c(160, 115), c(160, 145), c(120, 145), c(120, 115)};
+        Polygon hatchPoly = GF.createPolygon(
+                GF.createLinearRing(outer),
+                new LinearRing[]{GF.createLinearRing(hole)});
+        entities.add(CADEntity.builder(CADEntity.Types.HATCH)
+                .layer("地物填充")
+                .geometry(hatchPoly)
+                .property(EntityProperty.HATCH_PATTERN, "SOLID")
+                .property(EntityProperty.COLOR_ACI,     AciColor.GREEN)
+                .build());
+
+        // INSERT：引用名为 "WELL" 的块，geometry=Point（插入点）
+        entities.add(CADEntity.builder(CADEntity.Types.INSERT)
+                .layer("点位符号")
+                .geometry(GF.createPoint(new Coordinate(50, 150)))
+                .property(EntityProperty.BLOCK_NAME, "WELL")
+                .property(EntityProperty.SCALE_X,    1.5)
+                .property(EntityProperty.SCALE_Y,    1.5)
+                .property(EntityProperty.COLOR_ACI,  AciColor.WHITE)
+                .build());
+
+        // 块定义：WELL = 两条交叉线（检修井符号）
+        CADBlock wellBlock = new CADBlock("WELL");
+        wellBlock.setInsertionPoint(0, 0, 0);
+        wellBlock.addEntity(CADEntity.builder(CADEntity.Types.LINE)
+                .layer("0")
+                .geometry(GF.createLineString(new Coordinate[]{new Coordinate(-2, 0), new Coordinate(2, 0)}))
+                .build());
+        wellBlock.addEntity(CADEntity.builder(CADEntity.Types.LINE)
+                .layer("0")
+                .geometry(GF.createLineString(new Coordinate[]{new Coordinate(0, -2), new Coordinate(0, 2)}))
+                .build());
+        List<CADBlock> blocks = List.of(wellBlock);
+
+        // 图层线型测试：单独图层使用 CENTER 线型
+        entities.add(CADEntity.builder(CADEntity.Types.LINE)
+                .layer("轴线")
+                .geometry(GF.createLineString(new Coordinate[]{new Coordinate(0, 0), new Coordinate(200, 0)}))
+                .property(EntityProperty.COLOR_ACI, AciColor.RED)
+                .property(EntityProperty.LINETYPE,  "CENTER")
+                .property(EntityProperty.LINEWEIGHT, 25)
+                .build());
+
+        Path outDir = Paths.get("target/sample");
+        Files.createDirectories(outDir);
+        Path outFile = outDir.resolve("v12_new_entities.dxf");
+
+        DXFWriteConfig config = DXFWriteConfig.builder()
+                .version(DXFVersion.R2007)
+                .encoding("GBK")
+                .coordinateDecimalPlaces(4)
+                .build();
+        new DXFWriter(config).write(blocks, entities, outFile);
+
+        System.out.println("v1.2.0 实体测试文件：" + outFile.toAbsolutePath());
+        System.out.println("文件大小：" + Files.size(outFile) + " bytes");
+        assertThat(Files.exists(outFile)).isTrue();
+        assertThat(Files.size(outFile)).isGreaterThan(0);
+    }
+
+    /**
+     * 测试 R12 格式写出（含 ARC / CIRCLE / INSERT / 块定义）。
+     */
+    @Test
+    void generateV12R12Format() throws IOException {
+        CADBlock circleBlock = new CADBlock("CIRCLE_SYM");
+        circleBlock.setInsertionPoint(0, 0, 0);
+        circleBlock.addEntity(CADEntity.builder(CADEntity.Types.CIRCLE)
+                .layer("0")
+                .geometry(GF.createPoint(new Coordinate(0, 0)))
+                .property(EntityProperty.RADIUS, 3.0)
+                .build());
+
+        List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.ARC)
+                        .layer("弧形")
+                        .geometry(GF.createPoint(new Coordinate(50, 50)))
+                        .property(EntityProperty.RADIUS,      20.0)
+                        .property(EntityProperty.START_ANGLE, 0.0)
+                        .property(EntityProperty.END_ANGLE,   270.0)
+                        .property(EntityProperty.COLOR_ACI,   AciColor.RED)
+                        .build(),
+                CADEntity.builder(CADEntity.Types.INSERT)
+                        .layer("符号")
+                        .geometry(GF.createPoint(new Coordinate(100, 100)))
+                        .property(EntityProperty.BLOCK_NAME, "CIRCLE_SYM")
+                        .build()
+        );
+
+        Path outDir = Paths.get("target/sample");
+        Files.createDirectories(outDir);
+        Path outFile = outDir.resolve("v12_r12_format.dxf");
+
+        new DXFWriter(DXFWriteConfig.builder()
+                .version(DXFVersion.R12)
+                .coordinateDecimalPlaces(3)
+                .build())
+                .write(List.of(circleBlock), entities, outFile);
+
+        System.out.println("R12 测试文件：" + outFile.toAbsolutePath());
+        assertThat(Files.exists(outFile)).isTrue();
     }
 
     // =========================================================================

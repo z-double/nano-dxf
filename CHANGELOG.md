@@ -5,6 +5,39 @@
 
 ---
 
+## [1.2.0] - 开发中
+
+### 新增
+
+**写出实体类型扩充**
+- `ARC` 写出：type=`ARC` + geometry=`Point`（圆心）+ properties `{radius, startAngle, endAngle}` → DXF ARC。R2007 子类标记 `AcDbCircle` + `AcDbArc`；geometry 为 LineString 时回退为 LWPOLYLINE
+- `CIRCLE` 写出：type=`CIRCLE` + geometry=`Point`（圆心）+ property `radius` → DXF CIRCLE；geometry 为 LinearRing 时回退为 LWPOLYLINE
+- `HATCH` 写出：type=`HATCH` + geometry=`Polygon`/`MultiPolygon` → DXF HATCH（SOLID 填充），支持外环 + 洞，种子点取多边形内点。R12 降级为外环 LWPOLYLINE（无填充）
+- `INSERT` 写出：type=`INSERT` + geometry=`Point`（插入点）+ properties `{blockName, scaleX, scaleY, scaleZ, rotation}` → DXF INSERT
+
+**块定义写出 API**
+- `DXFWriter.write(List<CADBlock> blocks, List<CADEntity> entities, Path path)` 新重载：块定义写入 BLOCKS 段，BLOCK_RECORD 表自动追加对应记录
+- R12：块定义写在 ENTITIES 段内（`BLOCK...ENDBLK` 包围）
+- R2007：块定义写在 BLOCKS 段，块内实体 owner handle 指向对应 BLOCK_RECORD
+- 句柄分配：用户块 BLOCK_RECORD 从 `0x200` 起，BLOCK/ENDBLK 从 `0x210` 起，块内实体从 `0x300` 起
+
+**图层属性扩展**
+- LAYER 表新增线型（code 6）和线宽（code 370）写出
+- 从实体 `lineType` property 读取图层线型，从 `lineWeight` property 读取线宽码（-3=ByLayer 默认）
+- LTYPE 表自动收录图层引用的非标准线型（写出引用，不补充图案定义）
+
+**XDATA 写出**
+- 实体含 `xdata` property（`Map<String, List<XDataEntry>>`）时，在实体所有 group code 之后写出 XDATA
+- 支持 CASS / EPS / MapGIS 等地物编码的 DXF 文件往返完整性
+
+**新增 EntityProperty 常量（v1.2.0）**
+- `RADIUS` / `START_ANGLE` / `END_ANGLE`：ARC / CIRCLE 几何参数
+- `LINETYPE` / `LINEWEIGHT`：图层线型与线宽
+- `HATCH_PATTERN`：HATCH 填充图案名
+- `SCALE_X` / `SCALE_Y` / `SCALE_Z`：INSERT 缩放因子
+
+---
+
 ## [1.1.0] - 2026-05-20
 
 ### 新增

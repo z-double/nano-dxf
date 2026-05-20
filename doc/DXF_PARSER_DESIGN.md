@@ -1,4 +1,4 @@
-# DXF 解析器 + 写出器设计文档 v1.1
+# DXF 解析器 + 写出器设计文档 v1.2
 
 > 本文档描述 SmartCAD-Parser 中 DXF 解析器的自研实现方案。
 > DWG 文件经 ODA File Converter 转换为 DXF 后，走同一套解析链路。
@@ -1137,9 +1137,135 @@ if (Math.abs(v) >= 1e15) {
 | `InsUnit` | 顶层 | `$INSUNITS` 单位码 + `toMeters()` 换算工具 |
 | `output.LineTypeName` | `output` | 标准线型名，如 `CONTINUOUS / CENTER / DASHED` |
 
+### 18.7 v1.2.0 写出器扩展规划
+
+#### 新增实体类型写出协议
+
+**ARC（圆弧）**
+
+| 字段 | 约定 |
+|---|---|
+| `type` | `"ARC"` |
+| `geometry` | `Point`（圆心）|
+| properties | `radius`（double）、`startAngle`（double，度）、`endAngle`（double，度）|
+
+若 `geometry` 为 `LineString`（来自解析器离散化输出），回退写为 LWPOLYLINE。
+
+DXF group codes：10/20/30（圆心 X/Y/Z）、40（半径）、50（起始角）、51（终止角）。
+R2007 子类标记：`AcDbCircle` + `AcDbArc`。
+
+**CIRCLE（圆）**
+
+| 字段 | 约定 |
+|---|---|
+| `type` | `"CIRCLE"` |
+| `geometry` | `Point`（圆心）|
+| properties | `radius`（double）|
+
+若 `geometry` 为 `LinearRing`，回退写为 LWPOLYLINE（闭合）。
+
+DXF group codes：10/20/30（圆心 X/Y/Z）、40（半径）。
+R2007 子类标记：`AcDbCircle`。
+
+**HATCH（填充）**
+
+| 字段 | 约定 |
+|---|---|
+| `type` | `"HATCH"` |
+| `geometry` | `Polygon` 或 `MultiPolygon` |
+| properties | `hatchPattern`（string，默认 `"SOLID"`）|
+
+v1.2.0 仅支持 SOLID 填充，不支持自定义图案。
+边界路径类型标志：外环 `92=7`（外边界 + 折线 + 派生），洞 `92=23`（内边界 + 折线 + 派生）。
+种子点：取多边形质心。
+
+**INSERT（块引用）**
+
+| 字段 | 约定 |
+|---|---|
+| `type` | `"INSERT"` |
+| `geometry` | `Point`（插入点）|
+| properties | `blockName`（string，必须）、`scaleX`/`scaleY`/`scaleZ`（double，默认 1.0）、`rotation`（double，度，默认 0.0）|
+
+前置条件：`blockName` 引用的块必须在 BLOCKS 段中已定义。
+
+#### 图层属性扩展
+
+v1.1 图层只写名称 + 颜色，v1.2.0 增加线型和线宽：
+
+| 实体属性键 | 图层 DXF code | 默认值 | 说明 |
+|---|---|---|---|
+| `lineType` | 6 | `Continuous` | 线型名（须在 LTYPE 表中存在）|
+| `lineWeight` | 370 | `-3` | 线宽码（-3=ByLayer，-2=ByBlock，≥0=实际值）|
+
+同图层各实体的线型/线宽取第一个实体的值（与颜色策略一致）。
+非 `Continuous` 线型：v1.2.0 仅写出引用，不在 LTYPE 表补充复杂定义，依赖目标 CAD 已加载对应线型文件。
+
+#### XDATA 写出
+
+v1.1 已支持读入并存入 `xdata` property（`Map<String, List<XDataEntry>>`）。v1.2.0 支持写出：
+
+- 在实体 group codes 末尾（颜色字段之后）追加 XDATA
+- 格式：`1001`（应用名）→ 后续条目（1000~1071 范围）
+
+XDataEntry group code 映射：
+
+| 数据类型 | Code |
+|---|---|
+| String | 1000 |
+| 16 位整数 | 1070 |
+| 32 位整数 | 1071 |
+| double | 1040 |
+| 坐标点 | 1010/1020/1030 |
+
+#### 块定义写出 API
+
+新增重载：
+
+```java
+public void write(List<CADBlock> blocks, List<CADEntity> entities, Path path) throws IOException;
+```
+
+内部处理：
+1. BLOCK_RECORD 表追加用户块记录（handle 从 `0x200` 起）
+2. BLOCKS 段追加用户块定义（块内实体 handle 从 `0x300` 起）
+3. 实体中 type=`INSERT` 写出为 DXF INSERT 实体，引用对应块名
+
+句柄扩展：
+
+```
+0x200+ = 用户块 BLOCK_RECORD 记录
+0x300+ = 块内实体
+$HANDSEED 调整为 0x2000
+```
+
+#### 新增 EntityProperty 常量（v1.2.0）
+
+| 常量 | 值 | 用途 |
+|---|---|---|
+| `RADIUS` | `"radius"` | ARC / CIRCLE 半径 |
+| `START_ANGLE` | `"startAngle"` | ARC 起始角（度）|
+| `END_ANGLE` | `"endAngle"` | ARC 终止角（度）|
+| `LINETYPE` | `"lineType"` | 图层 / 实体线型名 |
+| `LINEWEIGHT` | `"lineWeight"` | DXF 线宽码（-3=ByLayer，-2=ByBlock，-1=Default，≥0 实际值）|
+| `HATCH_PATTERN` | `"hatchPattern"` | HATCH 图案名（默认 `"SOLID"`）|
+| `SCALE_X` | `"scaleX"` | INSERT X 缩放（默认 1.0）|
+| `SCALE_Y` | `"scaleY"` | INSERT Y 缩放（默认 1.0）|
+| `SCALE_Z` | `"scaleZ"` | INSERT Z 缩放（默认 1.0）|
+
+#### 实现优先级
+
+| 优先级 | 功能 | 价值 |
+|---|---|---|
+| P1 | ARC / CIRCLE 写出 | 弧形地物、圆形构筑物 |
+| P1 | HATCH SOLID 写出 | 面状地物填充（测绘核心需求）|
+| P2 | 图层线型 + 线宽写出 | 图形规范样式输出 |
+| P2 | XDATA 写出 | 地物编码保留（数据往返完整性）|
+| P3 | 块定义 + INSERT 写出 | 点状符号库（场景较少）|
+
 ---
 
-## 18. API 稳定性声明
+## 19. API 稳定性声明
 
 以下接口为 **稳定 API**，v1.x 版本内保持向后兼容：
 - `CADParser.parse()` 方法签名
@@ -1156,7 +1282,7 @@ if (Math.abs(v) >= 1e15) {
 
 ---
 
-## 19. 实现阶段
+## 20. 实现阶段
 
 **总工期：12 周（1 人），或 8 周（2 人并行）。**
 
@@ -1197,7 +1323,7 @@ if (Math.abs(v) >= 1e15) {
 
 ---
 
-## 20. 测试策略
+## 21. 测试策略
 
 自研解析器最大的风险是"写完跑通了，但输出是错的"。测试必须有黄金标准对比，不能只做单元测试。
 
@@ -1252,7 +1378,7 @@ fixtures/
 
 ---
 
-## 21. OBJECTS 段解析
+## 22. OBJECTS 段解析
 
 OBJECTS 段（R2000+）通过 `DICTIONARY → XRECORD` 结构存储非图形对象数据，和 XDATA 是并列的两套附加属性机制，不能只处理其中一个。
 
@@ -1279,7 +1405,7 @@ R12 无 OBJECTS 段，直接跳过。
 
 ---
 
-## 22. 维护策略
+## 23. 维护策略
 
 ### 16.1 格式版本追踪
 
@@ -1299,7 +1425,7 @@ AutoCAD 每年发布新版本，DXF 格式随之更新。建立以下机制：
 
 ---
 
-## 23. 依赖
+## 24. 依赖
 
 ```groovy
 // 几何计算与空间索引
