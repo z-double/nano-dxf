@@ -117,6 +117,7 @@
                             <goal>jar</goal>
                         </goals>
                         <configuration>
+                            <release>17</release>
                             <doclint>none</doclint>
                             <encoding>UTF-8</encoding>
                             <charset>UTF-8</charset>
