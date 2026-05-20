@@ -1,14 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   Maven 配置模板（Central Portal 方案，2024+ 新账号适用）
-  =========================================================
   使用步骤：
-    1. 将本文件复制到你的 Maven 用户目录：
+    1. 将本文件复制到 Maven 用户目录并重命名为 settings.xml
        Windows : %USERPROFILE%\.m2\settings.xml
        macOS   : ~/.m2/settings.xml
-    2. 将 <<<...>>> 标记的占位符替换为真实值
+    2. 替换所有 <<< >>> 占位符为真实值
     3. 不要把填好的 settings.xml 提交到版本库（含密码）
-  =========================================================
 -->
 <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -17,11 +15,9 @@
 
     <servers>
         <!--
-          Sonatype Central Portal Token
-          获取方式：
-            1. 登录 https://central.sonatype.com
-            2. 点击右上角头像 → Account → Generate User Token
-            3. 复制 tokenUsername 和 tokenPassword
+          Sonatype Central Portal Token 认证
+          获取方式：登录 central.sonatype.com，右上角头像 -> Account -> Generate User Token
+          将生成的 tokenUsername 和 tokenPassword 填入下方
         -->
         <server>
             <id>central</id>
@@ -34,15 +30,15 @@
         <profile>
             <id>release</id>
             <activation>
-                <!-- 执行 mvn deploy 时自动激活 -->
                 <activeByDefault>true</activeByDefault>
             </activation>
             <properties>
                 <!--
-                  GPG 密钥配置
-                  Windows 使用 Gpg4win：https://gpg4win.org/
-                  生成密钥：gpg --gen-key
-                  上传公钥：gpg --keyserver keyserver.ubuntu.com --send-keys <<<KEY_ID>>>
+                  GPG 密钥配置（Windows 需先安装 Gpg4win：gpg4win.org）
+                  命令参考（在终端执行，不要填到这里）：
+                    gpg -gen-key            （生成密钥，记住设置的密码）
+                    gpg -list-keys          （查看 KEY_ID）
+                    gpg -keyserver keyserver.ubuntu.com -send-keys KEY_ID  （上传公钥）
                 -->
                 <gpg.executable>gpg</gpg.executable>
                 <gpg.passphrase><<<你的 GPG 密钥密码>>></gpg.passphrase>

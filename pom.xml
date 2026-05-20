@@ -4,14 +4,14 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.nanodxf</groupId>
+    <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
     <version>1.2.0</version>
     <packaging>jar</packaging>
 
     <name>NanoDXF</name>
     <description>一个轻量级的 DXF 文件格式解析器，面向 GIS/CAD 应用场景</description>
-    <url>https://github.com/your-username/nano-dxf</url>
+    <url>https://github.com/Z-double/nano-dxf</url>
 
     <licenses>
         <license>
