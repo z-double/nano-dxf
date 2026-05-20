@@ -67,6 +67,17 @@
         </dependency>
     </dependencies>
 
+    <distributionManagement>
+        <!-- 阿里云效 Maven 制品仓库，将下方 URL 替换为创建仓库后"使用指南"里的实际地址 -->
+        <repository>
+            <id>aliyun-release</id>
+            <url>https://packages.aliyun.com/maven/替换为你的仓库ID/</url>
+        </repository>
+        <snapshotRepository>
+            <id>aliyun-snapshot</id>
+            <url>https://packages.aliyun.com/maven/替换为你的仓库ID-snapshots/</url>
+        </snapshotRepository>
+    </distributionManagement>
 
     <build>
         <plugins>
@@ -110,18 +121,20 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <version>3.6.3</version>
+                <!-- 插件级配置：对所有 goal 生效，避免 execution 级继承失效 -->
+                <configuration>
+                    <source>17</source>
+                    <release>17</release>
+                    <doclint>none</doclint>
+                    <encoding>UTF-8</encoding>
+                    <charset>UTF-8</charset>
+                </configuration>
                 <executions>
                     <execution>
                         <id>attach-javadocs</id>
                         <goals>
                             <goal>jar</goal>
                         </goals>
-                        <configuration>
-                            <release>17</release>
-                            <doclint>none</doclint>
-                            <encoding>UTF-8</encoding>
-                            <charset>UTF-8</charset>
-                        </configuration>
                     </execution>
                 </executions>
             </plugin>

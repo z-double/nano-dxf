@@ -37,3 +37,4 @@ out/
 
 # OS
 .DS_Store
+.settings-template.xml
