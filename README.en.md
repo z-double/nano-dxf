@@ -26,7 +26,7 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 <dependency>
     <groupId>com.nanodxf</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
 </dependency>
 ```
 
@@ -125,7 +125,61 @@ Common property keys:
 
 ---
 
+## DXF Output (Write)
+
+### Quick Write
+
+```java
+import com.nanodxf.output.DXFWriter;
+import com.nanodxf.output.DXFWriteConfig;
+import com.nanodxf.model.DXFVersion;
+
+List<CADEntity> entities = List.of(
+    CADEntity.builder(CADEntity.Types.LINE)
+        .layer("Road")
+        .geometry(GF.createLineString(new Coordinate[]{
+            new Coordinate(0, 0), new Coordinate(100, 0)}))
+        .property("colorAci", 7)
+        .build()
+);
+
+// R2007 + GBK (recommended for GstarCAD / AutoCAD)
+DXFWriteConfig config = DXFWriteConfig.builder()
+    .version(DXFVersion.R2007)
+    .encoding("GBK")               // required when layer names contain Chinese characters
+    .coordinateDecimalPlaces(4)
+    .build();
+
+new DXFWriter(config).write(entities, Paths.get("output.dxf"));
+```
+
+### DXFWriteConfig Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `version` | `R2007` | Output version (`R12` or `R2007`) |
+| `encoding` | auto | R2007+ defaults to UTF-8; others default to GBK. Specify explicitly when layer names contain non-ASCII characters. |
+| `coordinateDecimalPlaces` | `4` | Coordinate decimal places (0~15) |
+
+### Entity Type Constants
+
+`CADEntity.Types` provides string constants for all DXF entity types, eliminating magic strings:
+
+```java
+// Parsing side
+if (CADEntity.Types.LINE.equals(entity.getType())) { ... }
+
+// Writing side
+CADEntity.builder(CADEntity.Types.LWPOLYLINE).layer("Road").geometry(ring).build();
+```
+
+Constants: `LINE` / `ARC` / `CIRCLE` / `ELLIPSE` / `POINT` / `LWPOLYLINE` / `POLYLINE` / `VERTEX` / `SPLINE` / `TEXT` / `MTEXT` / `ATTRIB` / `HATCH` / `SOLID` / `FACE3D` (value `"3DFACE"`) / `INSERT` / `BLOCK` / `ENDBLK` / `SEQEND` / `DIMENSION` / `LEADER` / `VIEWPORT`
+
+---
+
 ## Supported DXF Versions
+
+### Parsing (Read)
 
 | Version string | AutoCAD version | Status |
 |---|---|---|
@@ -134,6 +188,13 @@ Common property keys:
 | AC1018 | R2004 | ✅ |
 | AC1021 | R2007 | ✅ |
 | AC1024+ | R2010~R2018 | ✅ |
+
+### Writing (Generate)
+
+| Version | Format | Recommended for |
+|---|---|---|
+| R12 (AC1009) | Minimal, no subclass markers | Cross-software compatibility, smallest file size |
+| R2007 (AC1021) | Full format, GstarCAD verified | Chinese domestic CAD software (GstarCAD, ZWCAD, etc.) |
 
 ---
 

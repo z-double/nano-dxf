@@ -26,7 +26,7 @@
 <dependency>
     <groupId>com.nanodxf</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
 </dependency>
 ```
 
@@ -125,7 +125,126 @@ entity.getProperties()   // Map<String, Object>，含颜色、文字、地物编
 
 ---
 
+## DXF 输出
+
+### 快速写出
+
+```java
+import com.nanodxf.output.DXFWriter;
+import com.nanodxf.output.DXFWriteConfig;
+import com.nanodxf.model.DXFVersion;
+import com.nanodxf.entity.CADEntity;
+
+List<CADEntity> entities = List.of(
+    CADEntity.builder(CADEntity.Types.LINE)
+        .layer("道路")
+        .geometry(GF.createLineString(new Coordinate[]{
+            new Coordinate(0, 0), new Coordinate(100, 0)}))
+        .property("colorAci", 7)
+        .build()
+);
+
+// R2007 + GBK（推荐，兼容浩辰 CAD / AutoCAD）
+DXFWriteConfig config = DXFWriteConfig.builder()
+    .version(DXFVersion.R2007)
+    .encoding("GBK")              // 含中文图层名时必须指定
+    .coordinateDecimalPlaces(4)
+    .build();
+
+new DXFWriter(config).write(entities, Paths.get("output.dxf"));
+```
+
+### DXFWriteConfig 参数
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `version` | `R2007` | 输出版本（`R12` 或 `R2007`） |
+| `encoding` | 自动 | R2007+ 默认 UTF-8，其他默认 GBK；含中文内容建议显式指定 GBK |
+| `coordinateDecimalPlaces` | `4` | 坐标小数位数（0~15） |
+
+### 支持输出的实体类型
+
+| 类型（`CADEntity.Types.*`） | 输入几何 | 输出实体 |
+|---|---|---|
+| `LINE` | `LineString`（2 点） | LINE |
+| `LWPOLYLINE` | `LineString`（多点）/ `LinearRing` | LWPOLYLINE |
+| `LWPOLYLINE` | `Polygon` | 外环 + 各洞，每个 LWPOLYLINE |
+| `POINT` | `Point` | POINT |
+| `TEXT` | `Point` | TEXT（需 `text` 属性） |
+| `MTEXT` | `Point` | MTEXT（需 `text` 属性） |
+| 任意 | `GeometryCollection` | 递归展开子几何 |
+
+### 支持的实体属性（写出）
+
+| 属性键 | 类型 | 作用 |
+|---|---|---|
+| `colorAci` | `Integer` | ACI 颜色号（同时写入图层颜色） |
+| `colorRgb` | `int[3]` | True Color（仅 R2004+，code 420） |
+| `text` | `String` | TEXT / MTEXT 文字内容 |
+| `height` | `Double` | 文字高度（默认 2.5） |
+| `rotation` | `Double` | 文字旋转角度（度，默认 0） |
+| `style` | `String` | TEXT 文字样式（默认 "Standard"） |
+
+### 格式版本对比
+
+| | R12 | R2007 |
+|---|---|---|
+| 子类标记（`100 AcDbXxx`） | ✗ | ✅ |
+| owner handle（`330`） | ✗ | ✅ |
+| BLOCKS / OBJECTS 段 | ✗ | ✅ |
+| True Color（code 420） | ✗ | ✅（R2004+） |
+| 浩辰 CAD 兼容 | ✅ | ✅ |
+| AutoCAD 2020+ 兼容 | ✅ | ✅ |
+| QGIS / LibreCAD 兼容 | ✅ | ✅ |
+
+### 实体类型常量
+
+`CADEntity.Types` 提供所有 DXF 实体类型的字符串常量，避免硬编码魔法字符串：
+
+```java
+// 解析侧
+if (CADEntity.Types.LINE.equals(entity.getType())) { ... }
+result.getEntities().stream()
+    .filter(e -> CADEntity.Types.LWPOLYLINE.equals(e.getType()))
+    .forEach(...);
+
+// 写出侧
+CADEntity.builder(CADEntity.Types.LWPOLYLINE).layer("建筑").geometry(ring).build();
+```
+
+常量列表：`LINE` / `ARC` / `CIRCLE` / `ELLIPSE` / `POINT` / `LWPOLYLINE` / `POLYLINE` / `VERTEX` / `SPLINE` / `TEXT` / `MTEXT` / `ATTRIB` / `HATCH` / `SOLID` / `FACE3D`（值 `"3DFACE"`）/ `INSERT` / `BLOCK` / `ENDBLK` / `SEQEND` / `DIMENSION` / `LEADER` / `VIEWPORT`
+
+### 其他常量类
+
+| 类 | 用途 | 典型常量 |
+|---|---|---|
+| `AciColor` | ACI 颜色码 | `RED=1` / `WHITE=7` / `BYLAYER=256` / `ORANGE=30` |
+| `EntityProperty` | 实体属性键字符串 | `COLOR_ACI` / `TEXT` / `ELEVATION` / `FEATURE_CODE` |
+| `InsUnit` | `$INSUNITS` 单位码 | `METERS=6` / `MILLIMETERS=4` / `FEET=2` |
+| `output.LineTypeName` | 标准线型名 | `CONTINUOUS` / `DASHED` / `CENTER` / `HIDDEN` |
+
+```java
+// EntityProperty 消除属性键魔法字符串
+String text = (String) entity.getProperties().get(EntityProperty.TEXT);
+Double elev = (Double) entity.getProperties().get(EntityProperty.ELEVATION);
+
+// InsUnit 单位换算
+double meters = InsUnit.toMeters(coord, result.getMetadata().getInsUnits());
+
+// 写出时组合使用
+CADEntity.builder(CADEntity.Types.TEXT)
+    .layer("注记")
+    .property(EntityProperty.TEXT,      "高程点 H=25.3")
+    .property(EntityProperty.HEIGHT,    2.5)
+    .property(EntityProperty.COLOR_ACI, AciColor.WHITE)
+    .build();
+```
+
+---
+
 ## 支持的 DXF 版本
+
+### 解析（读入）
 
 | 版本字符串 | AutoCAD 版本 | 支持状态 |
 |---|---|---|
@@ -134,6 +253,13 @@ entity.getProperties()   // Map<String, Object>，含颜色、文字、地物编
 | AC1018 | R2004 | ✅ |
 | AC1021 | R2007 | ✅ |
 | AC1024+ | R2010~R2018 | ✅ |
+
+### 写出（生成）
+
+| 版本 | 说明 | 推荐场景 |
+|---|---|---|
+| R12（AC1009） | 最简兼容格式，无子类标记 | 跨软件通用，文件最小 |
+| R2007（AC1021） | 完整格式，通过浩辰CAD验证 | 国内 CAD 软件（浩辰、中望等） |
 
 ---
 

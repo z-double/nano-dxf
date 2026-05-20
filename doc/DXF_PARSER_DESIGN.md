@@ -1,4 +1,4 @@
-# DXF 解析器设计文档 v1.0
+# DXF 解析器 + 写出器设计文档 v1.1
 
 > 本文档描述 SmartCAD-Parser 中 DXF 解析器的自研实现方案。
 > DWG 文件经 ODA File Converter 转换为 DXF 后，走同一套解析链路。
@@ -996,6 +996,146 @@ public record ParseStats(
     int  warningCount
 ) {}
 ```
+
+---
+
+## 18. DXF 写出器设计（v1.1 新增）
+
+### 18.1 核心设计决策
+
+**目标 CAD 软件**：浩辰 CAD（GstarCAD），要求 AC1021（R2007）格式，不支持 R2000/R2004。
+
+**双路径策略**：
+
+| 路径 | 版本 | 结构 | 适用场景 |
+|---|---|---|---|
+| R12 | AC1009 | HEADER + TABLES(LAYER) + ENTITIES | 最广泛兼容，文件最小 |
+| R2007 | AC1021 | 完整六段结构 | 浩辰CAD、中望CAD、AutoCAD 2010+ |
+
+### 18.2 R2007 必需的完整结构
+
+通过比对参考文件（能正常打开的 城建.dxf，AC1021）逐步确认了以下浩辰CAD的强制要求：
+
+#### HEADER 段必需变量
+
+```
+$ACADVER    = AC1021
+$ACADMAINTVER = 50        ← R2007+ 必须，缺少会报版本不兼容
+$DWGCODEPAGE = ANSI_936  ← GBK 编码时写 ANSI_936，不能写 "UTF-8"
+$INSUNITS   = 6           ← 坐标单位（6=米）
+$EXTMIN/$EXTMAX           ← 必须是真实包围盒，不能 min==max==0
+$HANDSEED   = 1000        ← 下一个可用句柄，不能缺失
+```
+
+#### TABLES 段必需的完整表集（顺序严格）
+
+```
+VPORT   ← 必须包含 *Active 记录（浩辰CAD 会查找此记录）
+LTYPE   ← 必须包含 ByBlock + ByLayer + Continuous 三条记录
+LAYER   ← 图层定义
+STYLE   ← 必须包含 Standard 文字样式
+VIEW    ← 空表，但必须存在
+UCS     ← 空表，但必须存在
+APPID   ← 必须包含 ACAD 应用注册
+DIMSTYLE← 必须包含 Standard，句柄用 code 105（非 code 5！）
+BLOCK_RECORD ← 必须最后，含 *Model_Space 和 *Paper_Space
+```
+
+#### BLOCK_RECORD 的 340 硬指针
+
+R2007 中 BLOCK_RECORD 必须通过 code 340 硬指针指向对应 LAYOUT 对象：
+
+```
+BLOCK_RECORD  *Model_Space  → 340 <Model LAYOUT 句柄>
+BLOCK_RECORD  *Paper_Space  → 340 <Layout1 LAYOUT 句柄>
+```
+
+#### OBJECTS 段 LAYOUT 链
+
+```
+root DICTIONARY (handle C)
+  └─ ACAD_LAYOUT → LAYOUT dict (handle 1A)
+        ├─ Layout1 → LAYOUT object (handle 1E)  ← 图纸空间，330 指向 *Paper_Space BR
+        └─ Model   → LAYOUT object (handle 22)  ← 模型空间，330 指向 *Model_Space BR
+                                                    331 指向 *Active VPORT 记录
+```
+
+每个 LAYOUT 对象包含两个子类：
+- `AcDbPlotSettings`：打印设置（浩辰CAD 会校验此子类存在）
+- `AcDbLayout`：布局几何信息
+
+### 18.3 句柄分配策略
+
+固定句柄（与参考文件对齐，避免冲突）：
+
+```
+1  = BLOCK_RECORD TABLE
+2  = LTYPE TABLE
+3  = LAYER TABLE
+4  = STYLE TABLE
+5  = Continuous LTYPE 记录
+6  = Standard STYLE 记录
+C  = root DICTIONARY
+1A = ACAD_LAYOUT 子字典
+1B = *Paper_Space BLOCK_RECORD
+1C = *Paper_Space BLOCK
+1D = *Paper_Space ENDBLK
+1E = Layout1 LAYOUT 对象
+1F = *Model_Space BLOCK_RECORD
+20 = *Model_Space BLOCK
+21 = *Model_Space ENDBLK
+22 = Model LAYOUT 对象
+E0 = VPORT TABLE
+E1 = APPID TABLE
+E2 = ACAD 应用注册记录
+E3 = *Active VPORT 记录
+E4 = ByBlock LTYPE 记录
+E5 = ByLayer LTYPE 记录
+E6 = VIEW TABLE
+E7 = UCS TABLE
+E8 = DIMSTYLE TABLE
+E9 = Standard DIMSTYLE 记录
+```
+
+动态分配：
+- 图层记录：从 `0x10` 开始递增
+- 实体记录：从 `0x100` 开始递增
+- `$HANDSEED = 0x1000`（安全上限，不与上述句柄冲突）
+
+### 18.4 数值格式注意事项
+
+LAYOUT 对象中使用 `±1e20` 作为边界无穷大值。若用 `%.4f` 格式化会产生 26 字符长字符串（`100000000000000000000.0000`），部分解析器无法处理。正确格式：
+
+```java
+// 错误：%.4f → "100000000000000000000.0000"
+// 正确：%.15E → "1.000000000000000E+20"
+if (Math.abs(v) >= 1e15) {
+    return String.format("%.15E", v);
+}
+```
+
+### 18.5 编码选择
+
+| 版本 | 推荐编码 | `$DWGCODEPAGE` | 说明 |
+|---|---|---|---|
+| R12 | GBK | 无（R12 不写此字段）| 最简兼容 |
+| R2007（纯 ASCII 内容）| UTF-8 | ANSI_1252 | DXF 官方规范 |
+| R2007（中文图层名）| GBK | ANSI_936 | 浩辰CAD 按 `$DWGCODEPAGE` 解码 |
+
+> **注意**：浩辰CAD 对 R2007 文件优先按 `$DWGCODEPAGE` 确定编码，而非硬编码 UTF-8。
+> 含中文内容时，必须显式 `.encoding("GBK")` + 自动写出 `ANSI_936`。
+
+### 18.6 公开 API 常量类（v1.1 新增）
+
+为消除调用方魔法字符串，新增以下常量类：
+
+| 类 | 包 | 解决的问题 |
+|---|---|---|
+| `CADEntity.Types` | `entity` | 实体类型字符串 22 个，如 `LINE / LWPOLYLINE / TEXT` |
+| `AciColor` | 顶层 | ACI 颜色码，标准色 1-9 + 特殊值 BYLAYER/BYBLOCK + 扩展别名 |
+| `EntityProperty` | 顶层 | `getProperties()` 属性键 14 个，如 `COLOR_ACI / TEXT / ELEVATION` |
+| `InsUnit` | 顶层 | `$INSUNITS` 单位码 + `toMeters()` 换算工具 |
+| `output.LineTypeName` | `output` | 标准线型名，如 `CONTINUOUS / CENTER / DASHED` |
 
 ---
 

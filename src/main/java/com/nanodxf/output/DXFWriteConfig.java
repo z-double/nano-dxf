@@ -14,7 +14,7 @@ import com.nanodxf.model.DXFVersion;
  */
 public class DXFWriteConfig {
 
-    /** 输出 DXF 版本，决定可用特性（True Color 需 R2004+）。默认 R2000。 */
+    /** 输出 DXF 版本，决定可用特性（True Color 需 R2004+）。默认 R2007（浩辰 CAD 最低支持版本）。 */
     private final DXFVersion version;
 
     /**
@@ -42,14 +42,15 @@ public class DXFWriteConfig {
     public static DXFWriteConfig defaults()      { return builder().build(); }
 
     public static class Builder {
-        private DXFVersion version = DXFVersion.R2000;
+        private DXFVersion version = DXFVersion.R2007;  // 浩辰 CAD 最低支持 R2007（AC1021）
         private String encoding = null; // null = 随版本自动
         private int coordinateDecimalPlaces = 4;
 
         /**
-         * 输出版本，默认 {@link DXFVersion#R2000}。
+         * 输出版本，默认 {@link DXFVersion#R2007}（浩辰 CAD 最低支持版本）。
          * R12 格式更简单但现代 AutoCAD（2020+）可能有兼容问题；
-         * R2000+ 路径会自动补全所有子类标记和 owner handle 交叉引用。
+         * R2007+ 路径会自动补全所有子类标记和 owner handle 交叉引用。
+         * 注意：浩辰 CAD 不支持 R2000/R2004，最低要求 R2007（AC1021）。
          */
         public Builder version(DXFVersion v)            { this.version = v; return this; }
 

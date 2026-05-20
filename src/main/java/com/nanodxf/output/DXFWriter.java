@@ -2,15 +2,16 @@ package com.nanodxf.output;
 
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.model.DXFVersion;
+import com.nanodxf.output.DXFWriteConfig;
 import org.locationtech.jts.geom.*;
 
 import java.io.*;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 /**
  * 将 {@link CADEntity} 列表序列化为 DXF ASCII 文件。
@@ -46,21 +47,31 @@ import java.util.Set;
 public class DXFWriter {
 
     // -------------------------------------------------------------------------
-    // 预分配固定句柄（R2000+ 路径专用，R12 路径不使用）
+    // 预分配固定句柄（与参考文件 城建.dxf 一致，R12 路径不使用）
     // -------------------------------------------------------------------------
-    private static final String H_BR_TABLE    = "1";  // BLOCK_RECORD TABLE
-    private static final String H_LT_TABLE    = "2";  // LTYPE TABLE
-    private static final String H_LY_TABLE    = "3";  // LAYER TABLE
-    private static final String H_ST_TABLE    = "4";  // STYLE TABLE
-    private static final String H_LT_CONT     = "5";  // Continuous LTYPE record
-    private static final String H_ST_STD      = "6";  // Standard STYLE record
-    private static final String H_MS_BR       = "7";  // *Model_Space BLOCK_RECORD
-    private static final String H_PS_BR       = "8";  // *Paper_Space BLOCK_RECORD
-    private static final String H_MS_BLOCK    = "9";  // *Model_Space BLOCK 实体
-    private static final String H_MS_ENDBLK   = "A";  // *Model_Space ENDBLK 实体
-    private static final String H_PS_BLOCK    = "B";  // *Paper_Space BLOCK 实体
-    private static final String H_PS_ENDBLK   = "C";  // *Paper_Space ENDBLK 实体
-    private static final String H_ROOT_DICT   = "D";  // root DICTIONARY
+    private static final String H_BR_TABLE    = "1";   // BLOCK_RECORD TABLE
+    private static final String H_LT_TABLE    = "2";   // LTYPE TABLE
+    private static final String H_LY_TABLE    = "3";   // LAYER TABLE
+    private static final String H_ST_TABLE    = "4";   // STYLE TABLE
+    private static final String H_LT_CONT     = "5";   // Continuous LTYPE record
+    private static final String H_ST_STD      = "6";   // Standard STYLE record
+    private static final String H_MS_BR       = "1F";  // *Model_Space BLOCK_RECORD（与参考文件一致）
+    private static final String H_PS_BR       = "1B";  // *Paper_Space BLOCK_RECORD（与参考文件一致）
+    private static final String H_MS_BLOCK    = "20";  // *Model_Space BLOCK 实体
+    private static final String H_MS_ENDBLK   = "21";  // *Model_Space ENDBLK 实体
+    private static final String H_PS_BLOCK    = "1C";  // *Paper_Space BLOCK 实体
+    private static final String H_PS_ENDBLK   = "1D";  // *Paper_Space ENDBLK 实体
+    private static final String H_ROOT_DICT   = "C";   // root DICTIONARY（与参考文件一致）
+    private static final String H_LAYOUT_DICT = "1A";  // ACAD_LAYOUT 子字典
+    private static final String H_LAYOUT_MS   = "22";  // *Model_Space LAYOUT 对象
+    private static final String H_LAYOUT_PS   = "1E";  // *Paper_Space LAYOUT 对象
+    private static final String H_VP_ACTIVE   = "E3";  // *Active VPORT 记录
+    private static final String H_LT_BYBLOCK  = "E4";  // ByBlock LTYPE
+    private static final String H_LT_BYLAYER  = "E5";  // ByLayer LTYPE
+    private static final String H_VW_TABLE    = "E6";  // VIEW 表（空）
+    private static final String H_UC_TABLE    = "E7";  // UCS 表（空）
+    private static final String H_DS_TABLE    = "E8";  // DIMSTYLE 表
+    private static final String H_DS_STD      = "E9";  // Standard DIMSTYLE 记录
     // 图层记录从 0x10 开始，实体句柄从 0x100 开始（由计数器动态分配）
 
     private final DXFWriteConfig config;
@@ -82,12 +93,13 @@ public class DXFWriter {
 
     public void write(List<CADEntity> entities, Writer out) throws IOException {
         LineWriter w = new LineWriter(out);
-        Set<String> layers = collectLayers(entities);
+        // layer → ACI 颜色（取该图层首个实体的颜色，无则用 7=白色）
+        Map<String, Integer> layerColors = collectLayerColors(entities);
 
         if (isR12()) {
-            writeR12(w, entities, layers);
+            writeR12(w, entities, layerColors);
         } else {
-            writeR2000(w, entities, layers);
+            writeR2000(w, entities, layerColors);
         }
         w.flush();
     }
@@ -97,9 +109,9 @@ public class DXFWriter {
     // =========================================================================
 
     private void writeR12(LineWriter w, List<CADEntity> entities,
-                          Set<String> layers) throws IOException {
+                          Map<String, Integer> layerColors) throws IOException {
         writeR12Header(w);
-        writeR12Tables(w, layers);
+        writeR12Tables(w, layerColors);
         writeR12Entities(w, entities);
         pair(w, 0, "EOF");
     }
@@ -112,15 +124,15 @@ public class DXFWriter {
         pair(w, 0, "ENDSEC");
     }
 
-    private void writeR12Tables(LineWriter w, Set<String> layers) throws IOException {
+    private void writeR12Tables(LineWriter w, Map<String, Integer> layerColors) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "TABLES");
         pair(w, 0, "TABLE"); pair(w, 2, "LAYER");
-        pair(w, 70, String.valueOf(layers.size()));
-        for (String l : layers) {
+        pair(w, 70, String.valueOf(layerColors.size()));
+        for (Map.Entry<String, Integer> e : layerColors.entrySet()) {
             pair(w, 0, "LAYER");
-            pair(w, 2, l);
+            pair(w, 2, e.getKey());
             pair(w, 70, "0");
-            pair(w, 62, "7");
+            pair(w, 62, String.valueOf(e.getValue()));
             pair(w, 6, "CONTINUOUS");
         }
         pair(w, 0, "ENDTAB");
@@ -231,52 +243,96 @@ public class DXFWriter {
     // =========================================================================
 
     private void writeR2000(LineWriter w, List<CADEntity> entities,
-                             Set<String> layers) throws IOException {
+                             Map<String, Integer> layerColors) throws IOException {
         // 图层句柄从 0x10 起，实体句柄从 0x100 起
         int[] lyH = {0x10};
         int[] enH = {0x100};
 
-        writeR2000Header(w);
+        // 计算实体包围盒用于 $EXTMIN/$EXTMAX
+        double[] extent = computeExtent(entities);
+
+        writeR2000Header(w, extent);
         pair(w, 0, "SECTION"); pair(w, 2, "CLASSES"); pair(w, 0, "ENDSEC");
-        writeR2000Tables(w, layers, lyH);
+        writeR2000Tables(w, layerColors, lyH);
         writeR2000Blocks(w);
         writeR2000Entities(w, entities, enH);
         writeR2000Objects(w);
         pair(w, 0, "EOF");
     }
 
-    private void writeR2000Header(LineWriter w) throws IOException {
+    private void writeR2000Header(LineWriter w, double[] extent) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "HEADER");
         pair(w, 9, "$ACADVER");    pair(w, 1, config.getVersion().getVersionString());
+        // $ACADMAINTVER 是 R2007+ 必需的维护版本号！
+        // 浩辰 CAD 会检查这个字段，没有会报版本不兼容
+        if (!config.getVersion().before(DXFVersion.R2007)) {
+            pair(w, 9, "$ACADMAINTVER"); pair(w, 70, "50");
+        }
         // $DWGCODEPAGE 必须是 Windows Code Page 名称，不能写 "UTF-8"
         // GBK → ANSI_936；其他 → ANSI_1252（西欧，ASCII 兼容）
         pair(w, 9, "$DWGCODEPAGE");
         pair(w, 3, "GBK".equalsIgnoreCase(config.getEncoding()) ? "ANSI_936" : "ANSI_1252");
         pair(w, 9, "$INSUNITS");   pair(w, 70, "6");
         pair(w, 9, "$LTSCALE");    pair(w, 40, fmt(1.0));
+        // $EXTMIN 和 $EXTMAX 必须是真实包围盒，不能都是 (0,0,0)
+        // 否则浩辰 CAD 会认为文件损坏而拒绝打开
         pair(w, 9, "$EXTMIN");
-        pair(w, 10, fmt(0.0)); pair(w, 20, fmt(0.0)); pair(w, 30, fmt(0.0));
+        pair(w, 10, fmt(extent[0])); pair(w, 20, fmt(extent[1])); pair(w, 30, fmt(extent[2]));
         pair(w, 9, "$EXTMAX");
-        pair(w, 10, fmt(0.0)); pair(w, 20, fmt(0.0)); pair(w, 30, fmt(0.0));
+        pair(w, 10, fmt(extent[3])); pair(w, 20, fmt(extent[4])); pair(w, 30, fmt(extent[5]));
+        // $HANDSEED 是 R2000+ 必需的！指定下一个可用句柄的起始值
+        // 没有这个变量，浩辰 CAD 会报 eNullObjectId 错误
+        pair(w, 9, "$HANDSEED");
+        pair(w, 5, "1000");  // 从 0x1000 开始，确保不与已分配的句柄冲突
         pair(w, 0, "ENDSEC");
     }
 
-    private void writeR2000Tables(LineWriter w, Set<String> layers, int[] lyH) throws IOException {
+    private void writeR2000Tables(LineWriter w, Map<String, Integer> layerColors, int[] lyH) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "TABLES");
 
-        // DXF 规范：BLOCK_RECORD 必须是 TABLES 段的最后一张表，其余顺序如下：
-        // VPORT → LTYPE → LAYER → STYLE → APPID → BLOCK_RECORD
+        // 顺序：VPORT → LTYPE → LAYER → STYLE → VIEW → UCS → APPID → DIMSTYLE → BLOCK_RECORD
+        // 必须完整写出，浩辰 CAD 会校验每张表和关键记录的存在性
 
-        // VPORT 表（空，需要存在）
+        // VPORT 表（含 *Active 记录，浩辰 CAD 必需）
         pair(w, 0, "TABLE"); pair(w, 2, "VPORT");
         pair(w, 5, "E0"); pair(w, 330, "0");
-        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "0");
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "1");
+        pair(w, 0, "VPORT"); pair(w, 5, H_VP_ACTIVE);
+        pair(w, 330, "E0");
+        pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbViewportTableRecord");
+        pair(w, 2, "*Active"); pair(w, 70, "0");
+        pair(w, 10, fmt(0.0)); pair(w, 20, fmt(0.0));
+        pair(w, 11, fmt(1.0)); pair(w, 21, fmt(1.0));
+        pair(w, 12, fmt(0.0)); pair(w, 22, fmt(0.0));
+        pair(w, 13, fmt(0.0)); pair(w, 23, fmt(0.0));
+        pair(w, 14, fmt(0.5)); pair(w, 24, fmt(0.5));
+        pair(w, 15, fmt(0.5)); pair(w, 25, fmt(0.5));
+        pair(w, 16, fmt(0.0)); pair(w, 26, fmt(0.0)); pair(w, 36, fmt(1.0));
+        pair(w, 17, fmt(0.0)); pair(w, 27, fmt(0.0)); pair(w, 37, fmt(0.0));
+        pair(w, 40, fmt(1.0));
+        pair(w, 41, fmt(1.0));
+        pair(w, 42, fmt(50.0));
+        pair(w, 43, fmt(0.0)); pair(w, 44, fmt(0.0));
+        pair(w, 50, fmt(0.0)); pair(w, 51, fmt(0.0));
+        pair(w, 71, "0"); pair(w, 72, "1000"); pair(w, 73, "1");
+        pair(w, 74, "3"); pair(w, 75, "0"); pair(w, 76, "0");
+        pair(w, 77, "0"); pair(w, 78, "0");
         pair(w, 0, "ENDTAB");
 
-        // LTYPE 表
+        // LTYPE 表（ByBlock + ByLayer + Continuous）
         pair(w, 0, "TABLE"); pair(w, 2, "LTYPE");
         pair(w, 5, H_LT_TABLE); pair(w, 330, "0");
-        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "1");
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "3");
+        pair(w, 0, "LTYPE"); pair(w, 5, H_LT_BYBLOCK);
+        pair(w, 330, H_LT_TABLE);
+        pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbLinetypeTableRecord");
+        pair(w, 2, "ByBlock"); pair(w, 70, "0");
+        pair(w, 3, ""); pair(w, 72, "65"); pair(w, 73, "0"); pair(w, 40, fmt(0.0));
+        pair(w, 0, "LTYPE"); pair(w, 5, H_LT_BYLAYER);
+        pair(w, 330, H_LT_TABLE);
+        pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbLinetypeTableRecord");
+        pair(w, 2, "ByLayer"); pair(w, 70, "0");
+        pair(w, 3, ""); pair(w, 72, "65"); pair(w, 73, "0"); pair(w, 40, fmt(0.0));
         pair(w, 0, "LTYPE"); pair(w, 5, H_LT_CONT);
         pair(w, 330, H_LT_TABLE);
         pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbLinetypeTableRecord");
@@ -288,12 +344,14 @@ public class DXFWriter {
         pair(w, 0, "TABLE"); pair(w, 2, "LAYER");
         pair(w, 5, H_LY_TABLE); pair(w, 330, "0");
         pair(w, 100, "AcDbSymbolTable");
-        pair(w, 70, String.valueOf(layers.size()));
-        for (String l : layers) {
+        pair(w, 70, String.valueOf(layerColors.size()));
+        for (Map.Entry<String, Integer> entry : layerColors.entrySet()) {
             pair(w, 0, "LAYER"); pair(w, 5, hex(lyH[0]++));
             pair(w, 330, H_LY_TABLE);
             pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbLayerTableRecord");
-            pair(w, 2, l); pair(w, 70, "0"); pair(w, 62, "7"); pair(w, 6, "Continuous");
+            pair(w, 2, entry.getKey()); pair(w, 70, "0");
+            pair(w, 62, String.valueOf(entry.getValue())); // 实际颜色
+            pair(w, 6, "Continuous");
             pair(w, 370, "-3");
         }
         pair(w, 0, "ENDTAB");
@@ -310,6 +368,18 @@ public class DXFWriter {
         pair(w, 71, "0"); pair(w, 42, fmt(2.5)); pair(w, 3, "txt"); pair(w, 4, "");
         pair(w, 0, "ENDTAB");
 
+        // VIEW 表（空，但必须存在）
+        pair(w, 0, "TABLE"); pair(w, 2, "VIEW");
+        pair(w, 5, H_VW_TABLE); pair(w, 330, "0");
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "0");
+        pair(w, 0, "ENDTAB");
+
+        // UCS 表（空，但必须存在）
+        pair(w, 0, "TABLE"); pair(w, 2, "UCS");
+        pair(w, 5, H_UC_TABLE); pair(w, 330, "0");
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "0");
+        pair(w, 0, "ENDTAB");
+
         // APPID 表
         pair(w, 0, "TABLE"); pair(w, 2, "APPID");
         pair(w, 5, "E1"); pair(w, 330, "0");
@@ -317,6 +387,18 @@ public class DXFWriter {
         pair(w, 0, "APPID"); pair(w, 5, "E2"); pair(w, 330, "E1");
         pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbRegAppTableRecord");
         pair(w, 2, "ACAD"); pair(w, 70, "0");
+        pair(w, 0, "ENDTAB");
+
+        // DIMSTYLE 表（Standard 记录，注意句柄用 code 105 而非 5）
+        pair(w, 0, "TABLE"); pair(w, 2, "DIMSTYLE");
+        pair(w, 5, H_DS_TABLE); pair(w, 330, "0");
+        pair(w, 100, "AcDbSymbolTable"); pair(w, 70, "1");
+        pair(w, 100, "AcDbDimStyleTable"); pair(w, 71, "0");
+        pair(w, 0, "DIMSTYLE"); pair(w, 105, H_DS_STD);  // DIMSTYLE 句柄用 105
+        pair(w, 330, H_DS_TABLE);
+        pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbDimStyleTableRecord");
+        pair(w, 2, "Standard"); pair(w, 70, "0");
+        pair(w, 340, H_ST_STD);  // 指向 Standard 文字样式
         pair(w, 0, "ENDTAB");
 
         // BLOCK_RECORD 表 ← 必须最后（DXF 规范强制要求）
@@ -331,13 +413,17 @@ public class DXFWriter {
     }
 
     private void writeBlockRecord(LineWriter w, String h, String name) throws IOException {
+        // 340 是指向对应 LAYOUT 对象的硬指针，参考文件 城建.dxf 有此字段，必须写
+        // DXF 解析器全量加载后再解析交叉引用，不存在"前向引用问题"
+        String layoutH = H_MS_BR.equals(h) ? H_LAYOUT_MS : H_LAYOUT_PS;
         pair(w, 0, "BLOCK_RECORD"); pair(w, 5, h);
         pair(w, 330, H_BR_TABLE);
         pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbBlockTableRecord");
         pair(w, 2, name);
+        pair(w, 340, layoutH);
         pair(w, 70, "0");
-        pair(w, 280, "1"); // 参考文件有此项
-        pair(w, 281, "0"); // 参考文件有此项
+        pair(w, 280, "1");
+        pair(w, 281, "0");
     }
 
     private void writeR2000Blocks(LineWriter w) throws IOException {
@@ -484,26 +570,142 @@ public class DXFWriter {
 
     private void writeR2000Objects(LineWriter w) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "OBJECTS");
+
+        // root DICTIONARY — 必须包含 ACAD_LAYOUT 条目，否则浩辰 CAD 报 eNullObjectId
         pair(w, 0, "DICTIONARY"); pair(w, 5, H_ROOT_DICT);
-        pair(w, 330, "0");                        // ← owner = root
+        pair(w, 330, "0");
         pair(w, 100, "AcDbDictionary"); pair(w, 281, "1");
+        pair(w, 3, "ACAD_LAYOUT"); pair(w, 350, H_LAYOUT_DICT);
+
+        // ACAD_LAYOUT 子字典 — 映射布局名 → LAYOUT 对象句柄
+        pair(w, 0, "DICTIONARY"); pair(w, 5, H_LAYOUT_DICT);
+        pair(w, 102, "{ACAD_REACTORS"); pair(w, 330, H_ROOT_DICT); pair(w, 102, "}");
+        pair(w, 330, H_ROOT_DICT);
+        pair(w, 100, "AcDbDictionary"); pair(w, 281, "1");
+        pair(w, 3, "Layout1"); pair(w, 350, H_LAYOUT_PS);
+        pair(w, 3, "Model");   pair(w, 350, H_LAYOUT_MS);
+
+        // Layout1（图纸空间布局）
+        writeLayout(w, H_LAYOUT_PS, "Layout1", 1, H_PS_BR);
+
+        // Model（模型空间布局）
+        writeLayout(w, H_LAYOUT_MS, "Model", 0, H_MS_BR);
+
         pair(w, 0, "ENDSEC");
+    }
+
+    /**
+     * 写一个 LAYOUT 对象。
+     *
+     * @param tabOrder  0=模型空间，1+=图纸空间标签顺序
+     * @param blockRecH 对应的 BLOCK_RECORD 句柄（code 330 in AcDbLayout）
+     */
+    private void writeLayout(LineWriter w, String h, String name,
+                              int tabOrder, String blockRecH) throws IOException {
+        pair(w, 0, "LAYOUT"); pair(w, 5, h);
+        pair(w, 102, "{ACAD_REACTORS"); pair(w, 330, H_LAYOUT_DICT); pair(w, 102, "}");
+        pair(w, 330, H_LAYOUT_DICT);
+
+        // AcDbPlotSettings — 浩辰 CAD 验证此子类存在
+        pair(w, 100, "AcDbPlotSettings");
+        pair(w, 1, "");           // 打印配置文件名（空=默认）
+        pair(w, 2, "none_device");// 打印设备名
+        pair(w, 4, "");           // 图纸尺寸名
+        pair(w, 6, "");           // 当前样式表
+        pair(w, 40, fmt(0.0)); pair(w, 41, fmt(0.0));
+        pair(w, 42, fmt(0.0)); pair(w, 43, fmt(0.0));
+        pair(w, 44, fmt(0.0)); pair(w, 45, fmt(0.0));
+        pair(w, 46, fmt(0.0)); pair(w, 47, fmt(0.0));
+        pair(w, 48, fmt(0.0)); pair(w, 49, fmt(0.0));
+        pair(w, 140, fmt(0.0)); pair(w, 141, fmt(0.0));
+        pair(w, 142, fmt(1.0)); pair(w, 143, fmt(1.0));
+        pair(w, 70, tabOrder == 0 ? "1712" : "688");
+        pair(w, 72, "0"); pair(w, 73, "0");
+        pair(w, 74, tabOrder == 0 ? "0" : "5");
+        pair(w, 7, "");
+        pair(w, 75, tabOrder == 0 ? "0" : "16");
+        pair(w, 147, fmt(1.0));
+        pair(w, 76, "0"); pair(w, 77, "2"); pair(w, 78, "300");
+        pair(w, 148, fmt(0.0)); pair(w, 149, fmt(0.0));
+
+        // AcDbLayout
+        pair(w, 100, "AcDbLayout");
+        pair(w, 1, name);
+        pair(w, 70, "1");
+        pair(w, 71, String.valueOf(tabOrder));
+        pair(w, 10, fmt(0.0)); pair(w, 20, fmt(0.0));
+        pair(w, 11, fmt(12.0)); pair(w, 21, fmt(9.0));
+        pair(w, 12, fmt(0.0)); pair(w, 22, fmt(0.0)); pair(w, 32, fmt(0.0));
+        pair(w, 14, fmt(1e20)); pair(w, 24, fmt(1e20)); pair(w, 34, fmt(1e20));
+        pair(w, 15, fmt(-1e20)); pair(w, 25, fmt(-1e20)); pair(w, 35, fmt(-1e20));
+        pair(w, 146, fmt(0.0));
+        pair(w, 13, fmt(0.0)); pair(w, 23, fmt(0.0)); pair(w, 33, fmt(0.0));
+        pair(w, 16, fmt(1.0)); pair(w, 26, fmt(0.0)); pair(w, 36, fmt(0.0));
+        pair(w, 17, fmt(0.0)); pair(w, 27, fmt(1.0)); pair(w, 37, fmt(0.0));
+        pair(w, 76, "0");
+        pair(w, 330, blockRecH); // 指回对应的 BLOCK_RECORD
+        if (tabOrder == 0) {
+            pair(w, 331, H_VP_ACTIVE); // 模型空间：软指针指向 *Active VPORT
+        }
     }
 
     // =========================================================================
     // 工具方法
     // =========================================================================
 
+    /**
+     * 计算所有实体的包围盒 [minX, minY, minZ, maxX, maxY, maxZ]。
+     * 如果没有实体或实体无几何，返回默认值避免 (0,0,0)-(0,0,0) 的无效范围。
+     */
+    private double[] computeExtent(List<CADEntity> entities) {
+        double minX = Double.POSITIVE_INFINITY;
+        double minY = Double.POSITIVE_INFINITY;
+        double minZ = Double.POSITIVE_INFINITY;
+        double maxX = Double.NEGATIVE_INFINITY;
+        double maxY = Double.NEGATIVE_INFINITY;
+        double maxZ = Double.NEGATIVE_INFINITY;
+        boolean hasGeom = false;
+
+        for (CADEntity e : entities) {
+            if (e.geometry() == null) continue;
+            hasGeom = true;
+            Coordinate[] coords = e.geometry().getCoordinates();
+            for (Coordinate c : coords) {
+                if (c.x < minX) minX = c.x;
+                if (c.y < minY) minY = c.y;
+                if (!Double.isNaN(c.getZ()) && c.getZ() < minZ) minZ = c.getZ();
+                if (c.x > maxX) maxX = c.x;
+                if (c.y > maxY) maxY = c.y;
+                if (!Double.isNaN(c.getZ()) && c.getZ() > maxZ) maxZ = c.getZ();
+            }
+        }
+
+        // 如果没有有效几何，返回一个小的默认范围，避免 min==max 导致 CAD 软件报错
+        if (!hasGeom || Double.isInfinite(minX)) {
+            return new double[]{0.0, 0.0, 0.0, 1.0, 1.0, 0.0};
+        }
+
+        // 确保 minZ/maxZ 不是 NaN
+        if (Double.isNaN(minZ)) minZ = 0.0;
+        if (Double.isNaN(maxZ)) maxZ = 0.0;
+
+        return new double[]{minX, minY, minZ, maxX, maxY, maxZ};
+    }
+
     private boolean isR12() { return config.getVersion() == DXFVersion.R12; }
 
-    private Set<String> collectLayers(List<CADEntity> entities) {
-        Set<String> layers = new LinkedHashSet<>();
-        layers.add("0");
+    /** 收集图层及其颜色（取该层第一个实体的 colorAci，无则用 7=白色）。 */
+    private Map<String, Integer> collectLayerColors(List<CADEntity> entities) {
+        Map<String, Integer> map = new LinkedHashMap<>();
+        map.put("0", 7);
         for (CADEntity e : entities) {
-            String l = e.getLayer();
-            if (l != null && !l.isEmpty()) layers.add(l);
+            String l = layerOf(e);
+            if (!map.containsKey(l)) {
+                Object aci = e.getProperties().get("colorAci");
+                map.put(l, aci instanceof Integer v ? v : 7);
+            }
         }
-        return layers;
+        return map;
     }
 
     private static String layerOf(CADEntity e) {
@@ -534,6 +736,10 @@ public class DXFWriter {
     }
 
     private String fmt(double v) {
+        // 极大/极小值用科学计数法，与参考文件一致（如 LAYOUT 边界 ±1e20）
+        if (Math.abs(v) >= 1e15 || (v != 0.0 && Math.abs(v) < 1e-9)) {
+            return String.format("%.15E", v);
+        }
         return String.format("%." + config.getCoordinateDecimalPlaces() + "f", v);
     }
 

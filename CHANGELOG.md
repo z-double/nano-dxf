@@ -5,6 +5,35 @@
 
 ---
 
+## [1.1.0] - 2026-05-20
+
+### 新增
+
+**DXF 写出功能**
+- `DXFWriter`：将 `CADEntity` 列表序列化为 DXF ASCII 文件
+  - R12 路径：最兼容格式，无子类标记、无 owner handle，适合 AutoCAD R12+ / QGIS / LibreCAD
+  - R2007 路径：完整格式，含 HEADER、CLASSES、TABLES、BLOCKS、ENTITIES、OBJECTS 全段，通过浩辰CAD（GstarCAD）验证
+  - 支持几何类型：`Point` → POINT，`LineString`（2点）→ LINE，`LineString`（多点）→ LWPOLYLINE，`LinearRing` → LWPOLYLINE（闭合），`Polygon` → 外环 + 各洞 LWPOLYLINE，`GeometryCollection` → 展开
+  - 支持实体属性：`colorAci`（ACI 颜色）、`colorRgb`（True Color，R2004+）、`text`（文字内容）、`height`（文字高度）、`rotation`（旋转角度）
+- `DXFWriteConfig`（Builder 模式）：版本（`R12 / R2007`）、编码（自动或手动）、坐标小数位数（0~15）
+- `CADEntity.Types`：DXF 实体类型字符串常量（`LINE / ARC / CIRCLE / ELLIPSE / POINT / LWPOLYLINE / POLYLINE / SPLINE / TEXT / MTEXT / HATCH / INSERT / DIMENSION` 等），消除调用方魔法字符串
+- `AciColor`：ACI 颜色命名常量（标准色 1-9、`BYLAYER` / `BYBLOCK`、常用扩展别名），替代测绘代码中的裸整数
+- `EntityProperty`：`CADEntity.getProperties()` 属性键常量（`COLOR_ACI / TEXT / HEIGHT / ELEVATION / FEATURE_CODE` 等 14 个键），消除属性访问中的魔法字符串
+- `InsUnit`：DXF `$INSUNITS` 单位码常量（`METERS=6 / MILLIMETERS=4 / FEET=2` 等）+ `toMeters()` 换算工具方法
+- `output.LineTypeName`：AutoCAD 标准线型名称常量（`CONTINUOUS / DASHED / CENTER / HIDDEN / PHANTOM` 等）
+
+**浩辰CAD（R2007）兼容性保障**
+- TABLES 段写出 VPORT（含 `*Active` 记录）、ByBlock/ByLayer/Continuous LTYPE、VIEW、UCS、DIMSTYLE（Standard）等完整表集合
+- OBJECTS 段写出 ACAD_LAYOUT 字典链 + Layout1/Model LAYOUT 对象
+- BLOCK_RECORD 写出 `340` 硬指针（→ LAYOUT 对象）
+- 图层颜色取该层首个实体的 `colorAci`，图层列表与实体颜色一致
+- 极大/极小值（如 LAYOUT 边界 ±1e20）使用科学计数法（`%.15E`），避免浮点格式异常
+
+### 修复
+- LAYOUT 对象 `±1e20` 边界坐标格式错误（`%.4f` 产生 26 字符长字符串）→ 改为 `1.000000000000000E+20`
+
+---
+
 ## [1.0.0] - 2026-05-19
 
 首个正式发布版本。完整实现了面向 GIS / 测绘场景的 DXF 解析链路。
