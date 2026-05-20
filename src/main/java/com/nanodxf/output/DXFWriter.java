@@ -135,8 +135,15 @@ public class DXFWriter {
         Set<String> linetypes = collectLinetypes(layerInfo);
         writeR12Header(w);
         writeR12Tables(w, layerInfo, linetypes);
-        writeR12Entities(w, blocks, entities);
+        if (!blocks.isEmpty()) writeR12Blocks(w, blocks); // BLOCKS 段必须在 ENTITIES 段之前
+        writeR12Entities(w, entities);
         pair(w, 0, "EOF");
+    }
+
+    private void writeR12Blocks(LineWriter w, List<CADBlock> blocks) throws IOException {
+        pair(w, 0, "SECTION"); pair(w, 2, "BLOCKS");
+        for (CADBlock b : blocks) writeR12BlockDef(w, b);
+        pair(w, 0, "ENDSEC");
     }
 
     private void writeR12Header(LineWriter w) throws IOException {
@@ -179,11 +186,8 @@ public class DXFWriter {
         pair(w, 0, "ENDSEC");
     }
 
-    private void writeR12Entities(LineWriter w, List<CADBlock> blocks,
-                                   List<CADEntity> entities) throws IOException {
+    private void writeR12Entities(LineWriter w, List<CADEntity> entities) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "ENTITIES");
-        // R12 块定义写在 ENTITIES 段内（BLOCK...ENDBLK 包围）
-        for (CADBlock b : blocks) writeR12BlockDef(w, b);
         for (CADEntity e : entities) writeEntityR12(w, e);
         pair(w, 0, "ENDSEC");
     }
