@@ -1,4 +1,4 @@
-﻿package com.nanodxf;
+package com.nanodxf;
 
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.geometry.GeometryBuilder;
