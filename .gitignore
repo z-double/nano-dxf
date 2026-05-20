@@ -27,6 +27,9 @@ target/
 # 真实 settings.xml 含密码，不提交（模板 settings-template.xml 可提交）
 settings.xml
 
+# 测试资源文件（DXF 测试文件较大，不提交）
+src/test/resources/
+
 # IntelliJ IDEA
 .idea/
 out/
