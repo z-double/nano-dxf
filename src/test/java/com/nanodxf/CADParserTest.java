@@ -1356,10 +1356,19 @@ class CADParserTest {
             new ShapefileWriter(ShapefileWriteConfig.builder().encoding("UTF-8").build())
                 .write(entities, shp);
 
-            // 读取 DBF 内容（UTF-8 编码），应包含图层名和实体类型
-            String dbfContent = Files.readString(tmp.resolve("attrs.dbf"), Charset.forName("UTF-8"));
-            assertThat(dbfContent).contains("高程点");
-            assertThat(dbfContent).contains("POINT");
+            // DBF 是二进制格式：用 ISO-8859-1 字节透传方式读取，避免二进制头部的
+            // UTF-8 非法字节（如记录大小字段 0xBD）引发 MalformedInputException。
+            // 对 ASCII 字段（POINT）直接匹配；对中文字段将 UTF-8 字节转为同等 Latin-1
+            // 表示后匹配（本质是字节级比对）。
+            byte[] dbfBytes = Files.readAllBytes(tmp.resolve("attrs.dbf"));
+            String dbfLatin1 = new String(dbfBytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+
+            assertThat(dbfLatin1).contains("POINT");   // ASCII，编码无关
+            // "高程点" 以 UTF-8 存入 DBF，将其 UTF-8 字节也当 Latin-1 解释后比对
+            String layerInLatin1 = new String(
+                "高程点".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                java.nio.charset.StandardCharsets.ISO_8859_1);
+            assertThat(dbfLatin1).contains(layerInLatin1);
         } finally {
             deleteDir(tmp);
         }
@@ -1481,6 +1490,7 @@ class CADParserTest {
     void shapefileWriter_shxOffsetConsistency_shouldMatchShpRecords() throws Exception {
         // SHX 中的偏移量应与 SHP 中实际记录位置一致
         Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
+        System.out.println(tmp.toString());
         try {
             Path shp = tmp.resolve("idx.shp");
             List<CADEntity> entities = List.of(
