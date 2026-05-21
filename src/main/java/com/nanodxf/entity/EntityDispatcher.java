@@ -43,8 +43,8 @@ public class EntityDispatcher {
         register("3DFACE",      new ThreeDFaceHandler());
         register("SOLID",       new SolidHandler());
 
-        // 图纸布局实体，不属于测量数据，直接跳过
-        register("LEADER",      EntityHandler.SKIP);
+        // LEADER 解析为引线折线；MULTILEADER 结构复杂暂跳过
+        register("LEADER",      new LeaderHandler());
         register("MULTILEADER", EntityHandler.SKIP);
         register("VIEWPORT",    EntityHandler.SKIP);
     }

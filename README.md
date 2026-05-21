@@ -26,7 +26,7 @@
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.2.1</version>
+    <version>1.3.0</version>
 </dependency>
 ```
 
@@ -154,7 +154,35 @@ DXFWriteConfig config = DXFWriteConfig.builder()
 new DXFWriter(config).write(entities, Paths.get("output.dxf"));
 ```
 
-### 写出 ARC / CIRCLE / HATCH / INSERT
+### 流式解析（大文件内存友好）
+
+```java
+// parseStream 两阶段：预解析 BLOCKS → 惰性流出 ENTITIES
+// 必须在 try-with-resources 中使用（流持有文件句柄）
+try (Stream<CADEntity> stream = new CADParser().parseStream(Paths.get("large.dxf"))) {
+    stream.filter(e -> CADEntity.Types.LWPOLYLINE.equals(e.getType()))
+          .limit(10_000)
+          .forEach(myProcessor::accept);
+}
+```
+
+### Shapefile 输出
+
+```java
+import com.nanodxf.output.ShapefileWriter;
+import com.nanodxf.output.ShapefileWriteConfig;
+
+ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
+    .crs("EPSG:4545")       // 写入 .prj 文件
+    .encoding("GBK")        // DBF 属性文件编码
+    .coordinateDecimalPlaces(4)
+    .build();
+
+// 输出：output.shp + output.shx + output.dbf + output.prj
+new ShapefileWriter(cfg).write(result.getEntities(), Paths.get("output.shp"));
+```
+
+### 写出 ARC / CIRCLE / HATCH / INSERT / ELLIPSE / SOLID / 3DFACE / SPLINE
 
 ```java
 // ARC：圆心 Point + radius/startAngle/endAngle 属性
@@ -195,6 +223,33 @@ entities.add(CADEntity.builder(CADEntity.Types.INSERT)
 
 // 写出时传入块定义列表
 new DXFWriter(config).write(List.of(symbol), entities, Paths.get("output.dxf"));
+
+// ELLIPSE：圆心 Point + 长轴向量 + 轴比（v1.3.0）
+entities.add(CADEntity.builder(CADEntity.Types.ELLIPSE)
+    .layer("椭圆")
+    .geometry(GF.createPoint(new Coordinate(200, 100)))
+    .property(EntityProperty.MAJOR_AXIS_X, 50.0)
+    .property(EntityProperty.MAJOR_AXIS_Y,  0.0)
+    .property(EntityProperty.AXIS_RATIO,    0.5)   // 短轴/长轴
+    .property(EntityProperty.START_ANGLE,   0.0)   // 弧度
+    .property(EntityProperty.END_ANGLE,     2 * Math.PI)
+    .build());
+
+// SOLID：4 顶点 Polygon（v1.3.0）
+entities.add(CADEntity.builder(CADEntity.Types.SOLID)
+    .layer("实体")
+    .geometry(solidPolygon)     // 外环前 4 顶点将写为 SOLID
+    .build());
+
+// SPLINE：带控制点的样条曲线（v1.3.0）
+List<double[]> ctrlPts = List.of(
+    new double[]{0, 0, 0}, new double[]{10, 20, 0},
+    new double[]{30, 15, 0}, new double[]{40, 0, 0});
+entities.add(CADEntity.builder(CADEntity.Types.SPLINE)
+    .layer("样条")
+    .geometry(GF.createLineString(/* discretized coords */))
+    .property(EntityProperty.CONTROL_POINTS, ctrlPts)
+    .build());
 ```
 
 ### DXFWriteConfig 参数
@@ -219,6 +274,10 @@ new DXFWriter(config).write(List.of(symbol), entities, Paths.get("output.dxf"));
 | `CIRCLE` | `Point`（圆心） | CIRCLE（需 `radius` 属性）|
 | `HATCH` | `Polygon`/`MultiPolygon` | HATCH（SOLID 填充，支持洞）|
 | `INSERT` | `Point`（插入点） | INSERT（需 `blockName` 属性）|
+| `ELLIPSE` | `Point`（圆心） | ELLIPSE（需 `majorAxisX/Y`、`axisRatio` 属性，v1.3.0）|
+| `SOLID` | `Polygon` / `LinearRing`（4 顶点） | SOLID（v1.3.0）|
+| `FACE3D` | `LinearRing` / `Polygon`（3~4 顶点） | 3DFACE（v1.3.0）|
+| `SPLINE` | `LineString` + `controlPoints` 属性 | SPLINE；无控制点时降级为 LWPOLYLINE（v1.3.0）|
 | 任意 | `GeometryCollection` | 递归展开子几何 |
 
 ### 支持的实体属性（写出）
@@ -240,6 +299,9 @@ new DXFWriter(config).write(List.of(symbol), entities, Paths.get("output.dxf"));
 | `lineType` | `String` | 图层线型名（默认 `"Continuous"`）|
 | `lineWeight` | `Integer` | 图层线宽码（默认 -3=ByLayer）|
 | `xdata` | `Map` | XDATA 写出（地物编码保留）|
+| `majorAxisX`/`majorAxisY` | `Double` | ELLIPSE 长轴端点向量（v1.3.0）|
+| `axisRatio` | `Double` | ELLIPSE 短轴/长轴比（v1.3.0）|
+| `controlPoints` | `List<double[]>` | SPLINE 控制点（v1.3.0）|
 
 ### 格式版本对比
 

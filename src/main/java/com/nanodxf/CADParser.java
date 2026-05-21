@@ -6,6 +6,7 @@ import com.nanodxf.core.SectionDispatcher;
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.geometry.UnitConverter;
 import com.nanodxf.model.DXFContext;
+import com.nanodxf.section.EntitiesParser;
 import org.locationtech.jts.geom.CoordinateSequence;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.util.GeometryTransformer;
@@ -13,6 +14,9 @@ import org.locationtech.jts.geom.util.GeometryTransformer;
 import java.io.IOException;
 import java.io.Reader;
 import java.nio.file.Path;
+import java.util.Spliterator;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  * NanoDXF 主解析入口。
@@ -65,6 +69,74 @@ public class CADParser {
     public ParseResult parse(Reader input) throws IOException {
         try (DXFReader reader = DXFReader.of(input)) {
             return doParse(reader);
+        }
+    }
+
+    /**
+     * 流式解析 DXF 文件，惰性返回模型空间实体。
+     *
+     * <p>两阶段策略：
+     * <ol>
+     *   <li><b>快速阶段</b>：全量读取 HEADER / TABLES / BLOCKS / OBJECTS 段（通常远小于 ENTITIES 段），
+     *       加载块定义和图层信息到内存。</li>
+     *   <li><b>惰性阶段</b>：逐实体解析 ENTITIES 段，INSERT 展开即时执行，不全量缓冲。</li>
+     * </ol>
+     *
+     * <p><b>重要</b>：返回的 {@link Stream} 持有文件句柄，<b>必须</b>在 try-with-resources 中使用：
+     * <pre>{@code
+     * try (Stream<CADEntity> stream = new CADParser().parseStream(path)) {
+     *     stream.filter(e -> CADEntity.Types.LWPOLYLINE.equals(e.getType()))
+     *           .limit(10_000)
+     *           .forEach(processor::accept);
+     * }
+     * }</pre>
+     *
+     * @param path DXF 文件路径
+     * @return 模型空间实体的惰性流（INSERT 已展开，图纸空间已过滤）
+     * @throws IOException 文件无法打开或编码检测失败时抛出
+     */
+    public Stream<CADEntity> parseStream(Path path) throws IOException {
+        DXFReader reader = DXFReader.open(path);
+        try {
+            DXFContext ctx = new DXFContext(config);
+            if (config.getCrs() != null) {
+                ctx.metadata.setCrs(config.getCrs());
+                ctx.metadata.setCrsSource("caller_specified");
+            }
+
+            // Phase 1: 逐 SECTION 分发，直到 ENTITIES 段
+            boolean atEntities = false;
+            while (reader.hasNext()) {
+                GroupCodePair pair = reader.next();
+                if (pair == null) break;
+                if (pair.code() == 0 && "SECTION".equals(pair.value())) {
+                    GroupCodePair namePair = reader.next();
+                    if (namePair != null && namePair.code() == 2) {
+                        String sectionName = namePair.value();
+                        if ("ENTITIES".equals(sectionName)) {
+                            atEntities = true;
+                            break;
+                        }
+                        dispatcher.dispatch(sectionName, reader, ctx);
+                    }
+                }
+            }
+
+            if (!atEntities) {
+                reader.close();
+                return Stream.empty();
+            }
+
+            // Phase 2: 创建惰性实体流
+            EntitiesParser ep = new EntitiesParser();
+            Spliterator<CADEntity> spliterator = ep.spliterator(reader, ctx);
+
+            return StreamSupport.stream(spliterator, false)
+                    .onClose(() -> { try { reader.close(); } catch (IOException ignored) {} });
+
+        } catch (IOException e) {
+            reader.close();
+            throw e;
         }
     }
 

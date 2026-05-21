@@ -1,5 +1,6 @@
 package com.nanodxf.entity.handler;
 
+import com.nanodxf.EntityProperty;
 import com.nanodxf.core.GroupCodePair;
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
@@ -63,7 +64,9 @@ public class SplineHandler implements EntityHandler {
                 .createLineString(coords.toArray(new Coordinate[0]));
 
         return List.of(CADEntity.builder("SPLINE")
-                .handle(handle).layer(layer).geometry(geom).build());
+                .handle(handle).layer(layer).geometry(geom)
+                .property(EntityProperty.CONTROL_POINTS, ctrlPtList)
+                .build());
     }
 
     /**

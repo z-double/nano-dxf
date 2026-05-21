@@ -221,6 +221,12 @@ public class DXFWriter {
         else if ("ARC".equals(type) && geom instanceof Point p)    writeArcR12(w, p, entity);
         else if ("CIRCLE".equals(type) && geom instanceof Point p) writeCircleR12(w, p, entity);
         else if ("INSERT".equals(type) && geom instanceof Point p) writeInsertR12(w, p, entity);
+        else if ("ELLIPSE".equals(type) && geom instanceof Point p) writeEllipseR12(w, p, entity);
+        else if ("SOLID".equals(type) && (geom instanceof Polygon || geom instanceof LinearRing))
+            writeSolidR12(w, geom, entity);
+        else if ("3DFACE".equals(type) && (geom instanceof LinearRing || geom instanceof Polygon))
+            writeThreeDFaceR12(w, geom, entity);
+        else if ("SPLINE".equals(type) && geom instanceof LineString ls) writeSplineR12(w, ls, entity);
         else if ("HATCH".equals(type)) {
             // R12 不支持 HATCH，降级为外环 LWPOLYLINE（仅边界，无填充）
             if (geom instanceof Polygon poly)
@@ -351,6 +357,103 @@ public class DXFWriter {
         pair(w, 10, fmt(p.getX())); pair(w, 20, fmt(p.getY())); pair(w, 30, fmtZ(p.getCoordinate().getZ()));
         pair(w, 40, fmt(dblProp(e, "height", 2.5)));
         pair(w, 1, text);
+    }
+
+    private void writeEllipseR12(LineWriter w, Point center, CADEntity e) throws IOException {
+        double mx = dblProp(e, "majorAxisX", 1.0);
+        double my = dblProp(e, "majorAxisY", 0.0);
+        double ratio = dblProp(e, "axisRatio", 1.0);
+        if (Math.sqrt(mx * mx + my * my) < 1e-12 || ratio <= 0) return;
+        pair(w, 0, "ELLIPSE");
+        writeR12Common(w, e);
+        pair(w, 10, fmt(center.getX())); pair(w, 20, fmt(center.getY()));
+        pair(w, 30, fmtZ(center.getCoordinate().getZ()));
+        pair(w, 11, fmt(mx)); pair(w, 21, fmt(my)); pair(w, 31, fmt(0.0));
+        pair(w, 40, fmt(ratio));
+        pair(w, 41, fmt(dblProp(e, "startAngle", 0.0)));
+        pair(w, 42, fmt(dblProp(e, "endAngle", 2 * Math.PI)));
+    }
+
+    private void writeSolidR12(LineWriter w, Geometry geom, CADEntity e) throws IOException {
+        Coordinate[] ring = (geom instanceof Polygon p)
+                ? p.getExteriorRing().getCoordinates()
+                : ((LinearRing) geom).getCoordinates();
+        int n = trimClosedEnd(ring, true);
+        if (n < 3) return;
+        // DXF SOLID 第三/四顶点是蝴蝶结顺序（v2 和 v3 互换）
+        Coordinate v0 = ring[0], v1 = ring[1], v2 = ring[2];
+        Coordinate v3 = n >= 4 ? ring[3] : ring[2]; // 三角形时 v3=v2
+        pair(w, 0, "SOLID");
+        writeR12Common(w, e);
+        pair(w, 10, fmt(v0.x)); pair(w, 20, fmt(v0.y)); pair(w, 30, fmtZ(v0.getZ()));
+        pair(w, 11, fmt(v1.x)); pair(w, 21, fmt(v1.y)); pair(w, 31, fmtZ(v1.getZ()));
+        // 蝴蝶结：写出时 code 12=v3，code 13=v2（与 SolidHandler 读取时互换一致）
+        pair(w, 12, fmt(v3.x)); pair(w, 22, fmt(v3.y)); pair(w, 32, fmtZ(v3.getZ()));
+        pair(w, 13, fmt(v2.x)); pair(w, 23, fmt(v2.y)); pair(w, 33, fmtZ(v2.getZ()));
+    }
+
+    private void writeThreeDFaceR12(LineWriter w, Geometry geom, CADEntity e) throws IOException {
+        Coordinate[] ring = (geom instanceof Polygon p)
+                ? p.getExteriorRing().getCoordinates()
+                : ((LinearRing) geom).getCoordinates();
+        int n = trimClosedEnd(ring, true);
+        if (n < 3) return;
+        Coordinate v0 = ring[0], v1 = ring[1], v2 = ring[2];
+        Coordinate v3 = n >= 4 ? ring[3] : ring[2];
+        pair(w, 0, "3DFACE");
+        writeR12Common(w, e);
+        pair(w, 10, fmt(v0.x)); pair(w, 20, fmt(v0.y)); pair(w, 30, fmtZ(v0.getZ()));
+        pair(w, 11, fmt(v1.x)); pair(w, 21, fmt(v1.y)); pair(w, 31, fmtZ(v1.getZ()));
+        pair(w, 12, fmt(v2.x)); pair(w, 22, fmt(v2.y)); pair(w, 32, fmtZ(v2.getZ()));
+        pair(w, 13, fmt(v3.x)); pair(w, 23, fmt(v3.y)); pair(w, 33, fmtZ(v3.getZ()));
+        pair(w, 70, "0"); // 边可见性：全可见
+    }
+
+    private void writeSplineR12(LineWriter w, LineString ls, CADEntity e) throws IOException {
+        @SuppressWarnings("unchecked")
+        List<double[]> ctrlPts = (List<double[]>) e.getProperties().get("controlPoints");
+        if (ctrlPts != null && ctrlPts.size() >= 2) {
+            int degree = 3;
+            double[] knots = generateClampedKnots(ctrlPts.size(), degree);
+            pair(w, 0, "SPLINE");
+            writeR12Common(w, e);
+            writeSplineBody(w, degree, knots, ctrlPts, false);
+        } else {
+            // 无控制点 → 降级为 LWPOLYLINE
+            Coordinate[] cs = ls.getCoordinates();
+            if (cs.length >= 2) writeLwR12(w, cs, false, e);
+        }
+    }
+
+    /** 写出 SPLINE 实体体（除 code 0 和公共头之外的字段），r2007=true 时插入 AcDbSpline 子类标记。 */
+    private void writeSplineBody(LineWriter w, int degree, double[] knots,
+                                  List<double[]> ctrlPts, boolean r2007) throws IOException {
+        if (r2007) pair(w, 100, "AcDbSpline");
+        pair(w, 70, "8");              // flags: planar
+        pair(w, 71, String.valueOf(degree));
+        pair(w, 72, String.valueOf(knots.length));
+        pair(w, 73, String.valueOf(ctrlPts.size()));
+        pair(w, 74, "0");              // no fit points
+        pair(w, 42, fmt(1e-10));       // knot tolerance
+        pair(w, 43, fmt(1e-10));       // control point tolerance
+        for (double k : knots) pair(w, 40, fmt(k));
+        for (double[] pt : ctrlPts) {
+            pair(w, 10, fmt(pt[0])); pair(w, 20, fmt(pt[1]));
+            pair(w, 30, pt.length > 2 ? fmt(pt[2]) : fmt(0.0));
+        }
+    }
+
+    /** 生成 n 个控制点、degree 次的 clamped uniform 节点向量。 */
+    private static double[] generateClampedKnots(int n, int degree) {
+        int total = n + degree + 1;
+        double[] knots = new double[total];
+        // 前 degree+1 个为 0，后 degree+1 个为 1，中间均匀分布
+        int internal = n - degree - 1;
+        for (int i = degree + 1; i < degree + 1 + internal; i++) {
+            knots[i] = (double)(i - degree) / (n - degree);
+        }
+        for (int i = total - degree - 1; i < total; i++) knots[i] = 1.0;
+        return knots;
     }
 
     /** R12 实体公共字段：图层 + 颜色（XDATA 由各实体方法在末尾单独写出）。 */
@@ -633,6 +736,12 @@ public class DXFWriter {
         else if ("ARC".equals(type) && geom instanceof Point p)    writeArcR2000(w, p, entity, ownerBR, enH);
         else if ("CIRCLE".equals(type) && geom instanceof Point p) writeCircleR2000(w, p, entity, ownerBR, enH);
         else if ("INSERT".equals(type) && geom instanceof Point p) writeInsertR2000(w, p, entity, ownerBR, enH);
+        else if ("ELLIPSE".equals(type) && geom instanceof Point p) writeEllipseR2000(w, p, entity, ownerBR, enH);
+        else if ("SOLID".equals(type) && (geom instanceof Polygon || geom instanceof LinearRing))
+            writeSolidR2000(w, geom, entity, ownerBR, enH);
+        else if ("3DFACE".equals(type) && (geom instanceof LinearRing || geom instanceof Polygon))
+            writeThreeDFaceR2000(w, geom, entity, ownerBR, enH);
+        else if ("SPLINE".equals(type) && geom instanceof LineString ls) writeSplineR2000(w, ls, entity, ownerBR, enH);
         else if ("HATCH".equals(type)) {
             // HATCH 可能对应多个多边形，各自写出后 XDATA 不追加（HATCH 不携带地物编码）
             if (geom instanceof Polygon poly)
@@ -842,6 +951,76 @@ public class DXFWriter {
         pair(w, 41, fmt(0.0));
         pair(w, 71, "1"); pair(w, 72, "5");
         pair(w, 1, text);
+    }
+
+    private void writeEllipseR2000(LineWriter w, Point center, CADEntity e,
+                                    String ownerBR, int[] h) throws IOException {
+        double mx = dblProp(e, "majorAxisX", 1.0);
+        double my = dblProp(e, "majorAxisY", 0.0);
+        double ratio = dblProp(e, "axisRatio", 1.0);
+        if (Math.sqrt(mx * mx + my * my) < 1e-12 || ratio <= 0) return;
+        pair(w, 0, "ELLIPSE");
+        writeR2000Common(w, e, ownerBR, h);
+        pair(w, 100, "AcDbEllipse");
+        pair(w, 10, fmt(center.getX())); pair(w, 20, fmt(center.getY()));
+        pair(w, 30, fmtZ(center.getCoordinate().getZ()));
+        pair(w, 11, fmt(mx)); pair(w, 21, fmt(my)); pair(w, 31, fmt(0.0));
+        pair(w, 40, fmt(ratio));
+        pair(w, 41, fmt(dblProp(e, "startAngle", 0.0)));
+        pair(w, 42, fmt(dblProp(e, "endAngle", 2 * Math.PI)));
+    }
+
+    private void writeSolidR2000(LineWriter w, Geometry geom, CADEntity e,
+                                  String ownerBR, int[] h) throws IOException {
+        Coordinate[] ring = (geom instanceof Polygon p)
+                ? p.getExteriorRing().getCoordinates()
+                : ((LinearRing) geom).getCoordinates();
+        int n = trimClosedEnd(ring, true);
+        if (n < 3) return;
+        Coordinate v0 = ring[0], v1 = ring[1], v2 = ring[2];
+        Coordinate v3 = n >= 4 ? ring[3] : ring[2];
+        pair(w, 0, "SOLID");
+        writeR2000Common(w, e, ownerBR, h);
+        pair(w, 100, "AcDbTrace");
+        pair(w, 10, fmt(v0.x)); pair(w, 20, fmt(v0.y)); pair(w, 30, fmtZ(v0.getZ()));
+        pair(w, 11, fmt(v1.x)); pair(w, 21, fmt(v1.y)); pair(w, 31, fmtZ(v1.getZ()));
+        pair(w, 12, fmt(v3.x)); pair(w, 22, fmt(v3.y)); pair(w, 32, fmtZ(v3.getZ()));
+        pair(w, 13, fmt(v2.x)); pair(w, 23, fmt(v2.y)); pair(w, 33, fmtZ(v2.getZ()));
+    }
+
+    private void writeThreeDFaceR2000(LineWriter w, Geometry geom, CADEntity e,
+                                       String ownerBR, int[] h) throws IOException {
+        Coordinate[] ring = (geom instanceof Polygon p)
+                ? p.getExteriorRing().getCoordinates()
+                : ((LinearRing) geom).getCoordinates();
+        int n = trimClosedEnd(ring, true);
+        if (n < 3) return;
+        Coordinate v0 = ring[0], v1 = ring[1], v2 = ring[2];
+        Coordinate v3 = n >= 4 ? ring[3] : ring[2];
+        pair(w, 0, "3DFACE");
+        writeR2000Common(w, e, ownerBR, h);
+        pair(w, 100, "AcDbFace");
+        pair(w, 10, fmt(v0.x)); pair(w, 20, fmt(v0.y)); pair(w, 30, fmtZ(v0.getZ()));
+        pair(w, 11, fmt(v1.x)); pair(w, 21, fmt(v1.y)); pair(w, 31, fmtZ(v1.getZ()));
+        pair(w, 12, fmt(v2.x)); pair(w, 22, fmt(v2.y)); pair(w, 32, fmtZ(v2.getZ()));
+        pair(w, 13, fmt(v3.x)); pair(w, 23, fmt(v3.y)); pair(w, 33, fmtZ(v3.getZ()));
+        pair(w, 70, "0");
+    }
+
+    private void writeSplineR2000(LineWriter w, LineString ls, CADEntity e,
+                                   String ownerBR, int[] h) throws IOException {
+        @SuppressWarnings("unchecked")
+        List<double[]> ctrlPts = (List<double[]>) e.getProperties().get("controlPoints");
+        if (ctrlPts != null && ctrlPts.size() >= 2) {
+            int degree = 3;
+            double[] knots = generateClampedKnots(ctrlPts.size(), degree);
+            pair(w, 0, "SPLINE");
+            writeR2000Common(w, e, ownerBR, h);
+            writeSplineBody(w, degree, knots, ctrlPts, true);
+        } else {
+            Coordinate[] cs = ls.getCoordinates();
+            if (cs.length >= 2) writeLwR2000(w, cs, false, e, ownerBR, h);
+        }
     }
 
     /** R2007+ 实体公共头：handle + owner + AcDbEntity + 图层 + 颜色（XDATA 由各实体方法在末尾单独写出）。 */

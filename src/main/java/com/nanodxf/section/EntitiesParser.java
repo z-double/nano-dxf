@@ -17,6 +17,9 @@ import com.nanodxf.xdata.XDataParser;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.function.Consumer;
 
 /**
  * ENTITIES section 解析器（R12 格式遗留段）。
@@ -72,11 +75,82 @@ public class EntitiesParser {
         }
     }
 
+    /**
+     * 创建 ENTITIES 段的惰性 Spliterator，用于流式解析。
+     *
+     * <p>调用前 reader 必须已定位在 ENTITIES 段内（SECTION/ENTITIES 已消费）。
+     * Spliterator 内部一次读取一个 DXF 实体，消费者按需拉取，不全量加载到内存。
+     */
+    public Spliterator<CADEntity> spliterator(DXFReader reader, DXFContext ctx) {
+        return new Spliterators.AbstractSpliterator<>(Long.MAX_VALUE,
+                Spliterator.ORDERED | Spliterator.NONNULL) {
+
+            private final Deque<CADEntity> pending = new ArrayDeque<>();
+            private boolean done = false;
+
+            @Override
+            public boolean tryAdvance(Consumer<? super CADEntity> action) {
+                // 先从缓冲区消费（一个 DXF 实体可能产生多个 CADEntity）
+                if (!pending.isEmpty()) { action.accept(pending.poll()); return true; }
+                if (done) return false;
+
+                // 读下一个实体
+                while (true) {
+                    List<CADEntity> batch = readNext();
+                    if (batch == null) { done = true; return false; }
+                    if (!batch.isEmpty()) {
+                        pending.addAll(batch);
+                        action.accept(pending.poll());
+                        return true;
+                    }
+                    // 空批次（被过滤）继续读
+                }
+            }
+
+            private List<CADEntity> readNext() {
+                try {
+                    while (reader.hasNext()) {
+                        GroupCodePair pair = reader.next();
+                        if (pair == null) return null;
+                        if (pair.code() == 0 && "ENDSEC".equals(pair.value())) return null;
+                        if (pair.code() != 0) continue;
+
+                        String entityType = pair.value();
+                        EntityBuffer buffer = collectBuffer(reader);
+
+                        if ("POLYLINE".equals(entityType))
+                            collectChildEntities(reader, buffer, Set.of("VERTEX"));
+                        else if ("INSERT".equals(entityType) && buffer.getInt(66, 0) == 1)
+                            collectChildEntities(reader, buffer, Set.of("ATTRIB"));
+
+                        if (!PaperSpaceFilter.isModelSpace(buffer)) return List.of();
+
+                        List<CADEntity> dispatched = dispatcher.dispatch(entityType, buffer, ctx);
+                        if (dispatched == null) {
+                            ctx.skippedEntityTypes.add(entityType);
+                            return List.of();
+                        }
+                        List<CADEntity> result = new ArrayList<>(dispatched.size());
+                        for (CADEntity entity : dispatched) {
+                            entity = enrichColor(entity, buffer, ctx);
+                            entity = enrichXData(entity, buffer);
+                            result.add(entity);
+                        }
+                        return result;
+                    }
+                    return null;
+                } catch (IOException e) {
+                    return null;
+                }
+            }
+        };
+    }
+
     // -------------------------------------------------------------------------
     // 颜色富化
     // -------------------------------------------------------------------------
 
-    private CADEntity enrichColor(CADEntity entity, EntityBuffer buffer, DXFContext ctx) {
+    CADEntity enrichColor(CADEntity entity, EntityBuffer buffer, DXFContext ctx) {
         int trueColor = buffer.getInt(420, -1);
         if (trueColor >= 0) {
             int r = (trueColor >> 16) & 0xFF;
@@ -103,7 +177,7 @@ public class EntitiesParser {
     // XDATA 富化
     // -------------------------------------------------------------------------
 
-    private CADEntity enrichXData(CADEntity entity, EntityBuffer buffer) {
+    CADEntity enrichXData(CADEntity entity, EntityBuffer buffer) {
         Map<String, List<XDataEntry>> xdata = xdataParser.parseFromBuffer(buffer);
         if (xdata.isEmpty()) return entity;
 

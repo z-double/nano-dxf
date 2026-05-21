@@ -26,9 +26,11 @@ import java.io.StringWriter;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -965,6 +967,240 @@ class CADParserTest {
         assertThat(elapsed)
                 .as("5000 LINE 实体应在 5000ms 内解析完毕，实际耗时: " + elapsed + "ms")
                 .isLessThan(5000L);
+    }
+
+    // =========================================================================
+    // v1.3.0 写出：SOLID / 3DFACE / ELLIPSE / SPLINE
+    // =========================================================================
+
+    @Test
+    void dxfWriter_solid_shouldProduceSolidEntity() throws Exception {
+        Coordinate[] ring = {
+            new Coordinate(0, 0), new Coordinate(10, 0),
+            new Coordinate(10, 10), new Coordinate(0, 10), new Coordinate(0, 0)
+        };
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.SOLID)
+                .layer("填充")
+                .geometry(GF.createPolygon(ring))
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
+        String dxf = sw.toString();
+        assertThat(dxf).contains("SOLID");
+    }
+
+    @Test
+    void dxfWriter_3dface_shouldProduceFaceEntity() throws Exception {
+        Coordinate[] ring = {
+            new Coordinate(0, 0), new Coordinate(10, 0),
+            new Coordinate(10, 10), new Coordinate(0, 10), new Coordinate(0, 0)
+        };
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.FACE3D)
+                .layer("面")
+                .geometry(GF.createLinearRing(ring))
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
+        String dxf = sw.toString();
+        assertThat(dxf).contains("3DFACE");
+    }
+
+    @Test
+    void dxfWriter_ellipse_shouldProduceEllipseEntity() throws Exception {
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.ELLIPSE)
+                .layer("椭圆")
+                .geometry(GF.createPoint(new Coordinate(50, 50)))
+                .property(EntityProperty.MAJOR_AXIS_X, 30.0)
+                .property(EntityProperty.MAJOR_AXIS_Y,  0.0)
+                .property(EntityProperty.AXIS_RATIO,    0.5)
+                .property(EntityProperty.START_ANGLE,   0.0)
+                .property(EntityProperty.END_ANGLE,     2 * Math.PI)
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
+        String dxf = sw.toString();
+        assertThat(dxf).contains("ELLIPSE");
+        assertThat(dxf).contains("0.5000"); // axisRatio
+    }
+
+    @Test
+    void dxfWriter_spline_withControlPoints_shouldProduceSplineEntity() throws Exception {
+        // 构造一个带控制点的 SPLINE 实体
+        List<double[]> ctrlPts = List.of(
+            new double[]{0, 0, 0}, new double[]{10, 20, 0},
+            new double[]{30, 15, 0}, new double[]{40, 0, 0});
+        Coordinate[] coords = ctrlPts.stream()
+            .map(p -> new Coordinate(p[0], p[1])).toArray(Coordinate[]::new);
+
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.SPLINE)
+                .layer("样条")
+                .geometry(GF.createLineString(coords))
+                .property(EntityProperty.CONTROL_POINTS, ctrlPts)
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
+        String dxf = sw.toString();
+        assertThat(dxf).contains("SPLINE");
+        assertThat(dxf).doesNotContain("LWPOLYLINE");
+    }
+
+    @Test
+    void dxfWriter_spline_withoutControlPoints_fallsBackToLwPolyline() throws Exception {
+        // 无控制点时 SPLINE 应降级为 LWPOLYLINE
+        Coordinate[] coords = {
+            new Coordinate(0, 0), new Coordinate(10, 5), new Coordinate(20, 0)};
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.SPLINE)
+                .layer("样条")
+                .geometry(GF.createLineString(coords))
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
+        String dxf = sw.toString();
+        assertThat(dxf).contains("LWPOLYLINE");
+    }
+
+    // =========================================================================
+    // v1.3.0 解析：DIMENSION 增强 / LEADER / 流式 API
+    // =========================================================================
+
+    @Test
+    void dimensionHandler_shouldExtractMeasurementValue() throws Exception {
+        String dxf = entities(
+            "  0\nDIMENSION\n  8\n标注\n" +
+            " 10\n100\n 20\n50\n 30\n0\n" +   // definition point
+            " 11\n110\n 21\n55\n 31\n0\n" +   // text midpoint
+            " 42\n15.5\n" +                     // measurement value
+            " 13\n95\n 23\n50\n 33\n0\n" +    // dimPoint1
+            " 14\n125\n 24\n50\n 34\n0\n" +   // dimPoint2
+            " 70\n1\n");                         // aligned dimension
+
+        ParseResult result = new CADParser().parse(new StringReader(dxf));
+        assertThat(result.getEntities()).hasSize(1);
+        CADEntity e = result.getEntities().get(0);
+        assertThat(e.getType()).isEqualTo("DIMENSION");
+
+        Object dimValue = e.getProperties().get(EntityProperty.DIMENSION_VALUE);
+        assertThat(dimValue).isInstanceOf(Double.class);
+        assertThat((Double) dimValue).isCloseTo(15.5, org.assertj.core.data.Offset.offset(1e-9));
+
+        assertThat(e.getProperties().get(EntityProperty.DIMENSION_TYPE)).isEqualTo(1);
+        assertThat(e.getProperties().get(EntityProperty.DIM_POINT1)).isInstanceOf(double[].class);
+        assertThat(e.getProperties().get(EntityProperty.DIM_POINT2)).isInstanceOf(double[].class);
+    }
+
+    @Test
+    void leaderHandler_shouldProduceLineStringGeometry() throws Exception {
+        String dxf = entities(
+            "  0\nLEADER\n  8\n引线\n" +
+            " 76\n3\n" +         // 3 vertices
+            " 10\n0\n 20\n0\n 30\n0\n" +
+            " 10\n10\n 20\n5\n 30\n0\n" +
+            " 10\n20\n 20\n0\n 30\n0\n");
+
+        ParseResult result = new CADParser().parse(new StringReader(dxf));
+        assertThat(result.getEntities()).hasSize(1);
+        CADEntity e = result.getEntities().get(0);
+        assertThat(e.getType()).isEqualTo("LEADER");
+        assertThat(e.geometry()).isInstanceOf(org.locationtech.jts.geom.LineString.class);
+        org.locationtech.jts.geom.LineString ls =
+            (org.locationtech.jts.geom.LineString) e.geometry();
+        assertThat(ls.getNumPoints()).isEqualTo(3);
+    }
+
+    @Test
+    void splineHandler_shouldStoreControlPoints() throws Exception {
+        // SPLINE 解析后应在 properties 中包含控制点
+        String dxf = entities(
+            "  0\nSPLINE\n  8\n样条\n" +
+            " 71\n3\n 72\n8\n 73\n4\n" +
+            " 40\n0\n 40\n0\n 40\n0\n 40\n0\n 40\n1\n 40\n1\n 40\n1\n 40\n1\n" +
+            " 10\n0\n 20\n0\n 30\n0\n" +
+            " 10\n10\n 20\n20\n 30\n0\n" +
+            " 10\n30\n 20\n15\n 30\n0\n" +
+            " 10\n40\n 20\n0\n 30\n0\n");
+
+        ParseResult result = new CADParser().parse(new StringReader(dxf));
+        assertThat(result.getEntities()).hasSize(1);
+        CADEntity e = result.getEntities().get(0);
+        assertThat(e.getType()).isEqualTo("SPLINE");
+
+        Object ctrlPts = e.getProperties().get(EntityProperty.CONTROL_POINTS);
+        assertThat(ctrlPts).isInstanceOf(List.class);
+        @SuppressWarnings("unchecked")
+        List<double[]> pts = (List<double[]>) ctrlPts;
+        assertThat(pts).hasSize(4);
+    }
+
+    @Test
+    void parseStream_shouldReturnSameEntitiesAsParseResult() throws Exception {
+        // 流式 API 与全量 API 应产生相同数量的实体
+        String dxf =
+            "  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nENTITIES\n" +
+            "  0\nLINE\n  8\n0\n 10\n0\n 20\n0\n 30\n0\n 11\n10\n 21\n0\n 31\n0\n" +
+            "  0\nLINE\n  8\n0\n 10\n10\n 20\n0\n 30\n0\n 11\n20\n 21\n0\n 31\n0\n" +
+            "  0\nPOINT\n  8\n0\n 10\n5\n 20\n5\n 30\n0\n" +
+            "  0\nENDSEC\n  0\nEOF\n";
+
+        java.nio.file.Path tmpFile = java.nio.file.Files.createTempFile("test_", ".dxf");
+        try {
+            java.nio.file.Files.writeString(tmpFile, dxf);
+
+            // 全量解析
+            ParseResult full = new CADParser(
+                ParseConfig.builder().applyUnitConversion(false).build())
+                .parse(tmpFile);
+            int fullCount = full.getEntities().size();
+
+            // 流式解析
+            List<CADEntity> streamed = new ArrayList<>();
+            try (Stream<CADEntity> stream = new CADParser(
+                    ParseConfig.builder().applyUnitConversion(false).build())
+                    .parseStream(tmpFile)) {
+                stream.forEach(streamed::add);
+            }
+
+            assertThat(streamed).hasSize(fullCount);
+            assertThat(streamed).hasSize(3);
+        } finally {
+            java.nio.file.Files.deleteIfExists(tmpFile);
+        }
+    }
+
+    @Test
+    void parseStream_shouldSupportFilter() throws Exception {
+        // 流式 API 支持 filter，只取指定类型
+        String dxf =
+            "  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nENTITIES\n" +
+            "  0\nLINE\n  8\n0\n 10\n0\n 20\n0\n 30\n0\n 11\n1\n 21\n0\n 31\n0\n" +
+            "  0\nPOINT\n  8\n0\n 10\n5\n 20\n5\n 30\n0\n" +
+            "  0\nLINE\n  8\n0\n 10\n2\n 20\n0\n 30\n0\n 11\n3\n 21\n0\n 31\n0\n" +
+            "  0\nENDSEC\n  0\nEOF\n";
+
+        java.nio.file.Path tmpFile = java.nio.file.Files.createTempFile("test_filter_", ".dxf");
+        try {
+            java.nio.file.Files.writeString(tmpFile, dxf);
+            List<CADEntity> lines = new ArrayList<>();
+            try (Stream<CADEntity> stream = new CADParser(
+                    ParseConfig.builder().applyUnitConversion(false).build())
+                    .parseStream(tmpFile)) {
+                stream.filter(e -> "LINE".equals(e.getType())).forEach(lines::add);
+            }
+            assertThat(lines).hasSize(2);
+        } finally {
+            java.nio.file.Files.deleteIfExists(tmpFile);
+        }
     }
 
     public static void main(String[] args) throws IOException, URISyntaxException {

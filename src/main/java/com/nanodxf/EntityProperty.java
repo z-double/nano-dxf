@@ -241,4 +241,66 @@ public final class EntityProperty {
      * ATTRIB 实体的文字值（code 1），与 {@link #TAG} 配对出现。
      */
     public static final String VALUE = "value";
+
+    // =========================================================================
+    // 椭圆（ELLIPSE）
+    // =========================================================================
+
+    /**
+     * 长轴端点向量 X 分量（Double，相对圆心）。
+     * 对应 DXF code 11。写出 ELLIPSE 时必须提供（配合 {@link #MAJOR_AXIS_Y}）。
+     */
+    public static final String MAJOR_AXIS_X = "majorAxisX";
+
+    /**
+     * 长轴端点向量 Y 分量（Double，相对圆心）。
+     * 对应 DXF code 21。写出 ELLIPSE 时必须提供（配合 {@link #MAJOR_AXIS_X}）。
+     */
+    public static final String MAJOR_AXIS_Y = "majorAxisY";
+
+    /**
+     * 短轴与长轴之比（Double，范围 0~1）。
+     * 对应 DXF code 40。写出 ELLIPSE 时必须提供。
+     */
+    public static final String AXIS_RATIO = "axisRatio";
+
+    // =========================================================================
+    // 标注（DIMENSION）
+    // =========================================================================
+
+    /**
+     * 标注实测值（Double）。
+     * 对应 DXF code 42（CAD 自动计算的距离/角度数值）。
+     * 文字为 "&lt;&gt;" 时由 CAD 自动填充，此属性存储其数值。
+     */
+    public static final String DIMENSION_VALUE = "dimensionValue";
+
+    /**
+     * 标注类型（Integer）。
+     * 对应 DXF code 70：0=旋转，1=对齐，2=角度，3=直径，4=半径，5=角度3点，6=序列。
+     */
+    public static final String DIMENSION_TYPE = "dimensionType";
+
+    /**
+     * 标注第一定义点（{@code double[2]}，{@code [x, y]}）。
+     * 对应 DXF code 13/23/33（线性标注中第一延伸线起点）。
+     */
+    public static final String DIM_POINT1 = "dimPoint1";
+
+    /**
+     * 标注第二定义点（{@code double[2]}，{@code [x, y]}）。
+     * 对应 DXF code 14/24/34（线性标注中第二延伸线起点）。
+     */
+    public static final String DIM_POINT2 = "dimPoint2";
+
+    // =========================================================================
+    // 样条（SPLINE）
+    // =========================================================================
+
+    /**
+     * SPLINE 控制点列表（{@code List<double[]>}，每元素为 {@code [x, y, z]}）。
+     * 解析时由 SplineHandler 存入，写出时优先使用控制点构造 DXF SPLINE；
+     * 属性缺失时将 LineString 降级为 LWPOLYLINE 写出。
+     */
+    public static final String CONTROL_POINTS = "controlPoints";
 }

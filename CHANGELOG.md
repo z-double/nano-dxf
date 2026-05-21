@@ -5,6 +5,53 @@
 
 ---
 
+## [1.3.0] - 2026-05-21
+
+### 新增
+
+**写出实体类型扩充（方向 A）**
+- `ELLIPSE` 写出：type=`ELLIPSE` + geometry=`Point`（圆心）+ properties `{majorAxisX, majorAxisY, axisRatio, startAngle, endAngle}` → DXF ELLIPSE。R12 / R2007 双路径。
+- `SOLID` 写出：type=`SOLID` + geometry=`Polygon`（4 顶点）或 `LinearRing` → DXF SOLID，自动处理蝴蝶结顶点顺序。
+- `3DFACE` 写出：type=`3DFACE` + geometry=`LinearRing`（3~4 顶点）→ DXF 3DFACE，edge 可见性标志默认全可见。
+- `SPLINE` 写出：type=`SPLINE` + geometry=`LineString` + `controlPoints` 属性 → DXF SPLINE（三次样条，自动生成 clamped uniform 节点向量）。无控制点时降级为 LWPOLYLINE。
+
+**解析增强（方向 C）**
+- `LEADER` 解析：新增 `LeaderHandler`，将引线顶点序列解析为 JTS `LineString`，替代原来的 `SKIP`。
+- `DIMENSION` 增强：新增提取 code 42（实测值 `dimensionValue`）、code 13/23/33（`dimPoint1`）、code 14/24/34（`dimPoint2`）、code 50（`dimRotation`）。
+- `SPLINE` 增强：解析时额外将控制点列表（`List<double[]>`）存入 properties `controlPoints`，支持写出时往返还原为 DXF SPLINE。
+
+**流式解析 API（方向 D）**
+- `CADParser.parseStream(Path)` 新方法：两阶段策略（快速预解析 BLOCKS/TABLES → 惰性流出 ENTITIES），返回 `Stream<CADEntity>`，大文件内存友好。流持有文件句柄，必须在 try-with-resources 中使用。
+
+**Shapefile 输出（方向 E）**
+- `ShapefileWriter`：纯 Java 实现（无额外依赖），输出 `.shp`（几何）+ `.shx`（索引）+ `.dbf`（属性）+ `.prj`（坐标系说明）。
+- 几何类型映射：`Point` → Shape Type 1，`LineString/MultiLineString` → Shape Type 3，`Polygon/MultiPolygon` → Shape Type 5；Shapefile 外环 CCW / 内环 CW 自动纠正。
+- DBF 属性字段：`LAYER`(C64)、`ETYPE`(C16)、`TEXT`(C254)、`FEAT_CODE`(C32)、`FEAT_TYPE`(C64)、`COLOR`(N4)、`ELEVATION`(N10.4)。
+- `ShapefileWriteConfig`（Builder 模式）：`crs`、`encoding`、`coordinateDecimalPlaces`。
+
+**新增 EntityProperty 常量（v1.3.0）**
+- `MAJOR_AXIS_X` / `MAJOR_AXIS_Y`：ELLIPSE 长轴端点向量分量
+- `AXIS_RATIO`：ELLIPSE 短轴与长轴之比
+- `DIMENSION_VALUE`：DIMENSION 实测值（code 42）
+- `DIMENSION_TYPE`：DIMENSION 类型标志（code 70）
+- `DIM_POINT1` / `DIM_POINT2`：DIMENSION 第一/第二定义点
+- `CONTROL_POINTS`：SPLINE 控制点列表
+
+### 测试（新增 8 个）
+
+- `dxfWriter_solid_shouldProduceSolidEntity`
+- `dxfWriter_3dface_shouldProduceFaceEntity`
+- `dxfWriter_ellipse_shouldProduceEllipseEntity`
+- `dxfWriter_spline_withControlPoints_shouldProduceSplineEntity`
+- `dxfWriter_spline_withoutControlPoints_fallsBackToLwPolyline`
+- `dimensionHandler_shouldExtractMeasurementValue`
+- `leaderHandler_shouldProduceLineStringGeometry`
+- `splineHandler_shouldStoreControlPoints`
+- `parseStream_shouldReturnSameEntitiesAsParseResult`
+- `parseStream_shouldSupportFilter`
+
+---
+
 ## [1.2.1] - 2026-05-21
 
 ### 修复
