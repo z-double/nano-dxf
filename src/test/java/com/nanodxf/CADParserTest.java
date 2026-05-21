@@ -1159,7 +1159,7 @@ class CADParserTest {
             "  0\nPOINT\n  8\n0\n 10\n5\n 20\n5\n 30\n0\n" +
             "  0\nENDSEC\n  0\nEOF\n";
 
-        java.nio.file.Path tmpFile = java.nio.file.Files.createTempFile("test_", ".dxf");
+        java.nio.file.Path tmpFile = java.nio.file.Files.createTempFile(Paths.get("target"), "test_", ".dxf");
         try {
             java.nio.file.Files.writeString(tmpFile, dxf);
 
@@ -1195,7 +1195,7 @@ class CADParserTest {
             "  0\nLINE\n  8\n0\n 10\n2\n 20\n0\n 30\n0\n 11\n3\n 21\n0\n 31\n0\n" +
             "  0\nENDSEC\n  0\nEOF\n";
 
-        java.nio.file.Path tmpFile = java.nio.file.Files.createTempFile("test_filter_", ".dxf");
+        java.nio.file.Path tmpFile = java.nio.file.Files.createTempFile(Paths.get("target"), "test_filter_", ".dxf");
         try {
             java.nio.file.Files.writeString(tmpFile, dxf);
             List<CADEntity> lines = new ArrayList<>();
@@ -1241,7 +1241,7 @@ class CADParserTest {
 
     @Test
     void shapefileWriter_point_shouldCreateAllFiles() throws Exception {
-        Path tmp = Files.createTempDirectory("shp_test_");
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
         try {
             Path shp = tmp.resolve("out.shp");
             List<CADEntity> entities = List.of(
@@ -1265,7 +1265,7 @@ class CADParserTest {
 
     @Test
     void shapefileWriter_point_shpHeaderShouldHaveMagic9994AndShapeType1() throws Exception {
-        Path tmp = Files.createTempDirectory("shp_test_");
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
         try {
             Path shp = tmp.resolve("pt.shp");
             List<CADEntity> entities = List.of(
@@ -1283,7 +1283,7 @@ class CADParserTest {
 
     @Test
     void shapefileWriter_polyline_shouldWriteShapeType3() throws Exception {
-        Path tmp = Files.createTempDirectory("shp_test_");
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
         try {
             Path shp = tmp.resolve("line.shp");
             LineString ls = GF.createLineString(new Coordinate[]{
@@ -1301,7 +1301,7 @@ class CADParserTest {
 
     @Test
     void shapefileWriter_polygon_shouldWriteShapeType5() throws Exception {
-        Path tmp = Files.createTempDirectory("shp_test_");
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
         try {
             Path shp = tmp.resolve("poly.shp");
             Coordinate[] ring = {
@@ -1321,7 +1321,7 @@ class CADParserTest {
 
     @Test
     void shapefileWriter_dbf_recordCountShouldMatchEntityCount() throws Exception {
-        Path tmp = Files.createTempDirectory("shp_test_");
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
         try {
             Path shp = tmp.resolve("multi.shp");
             List<CADEntity> entities = List.of(
@@ -1343,7 +1343,7 @@ class CADParserTest {
 
     @Test
     void shapefileWriter_dbf_shouldContainLayerAndTypeFields() throws Exception {
-        Path tmp = Files.createTempDirectory("shp_test_");
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
         try {
             Path shp = tmp.resolve("attrs.shp");
             List<CADEntity> entities = List.of(
@@ -1367,7 +1367,7 @@ class CADParserTest {
 
     @Test
     void shapefileWriter_withCrs_shouldCreatePrjFile() throws Exception {
-        Path tmp = Files.createTempDirectory("shp_test_");
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
         try {
             Path shp = tmp.resolve("crs.shp");
             List<CADEntity> entities = List.of(
@@ -1388,7 +1388,7 @@ class CADParserTest {
     @Test
     void shapefileWriter_nullGeometry_shouldStillWriteDbfRecord() throws Exception {
         // geometry 为 null 的实体写出 Null Shape，但 DBF 记录应保留
-        Path tmp = Files.createTempDirectory("shp_test_");
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
         try {
             Path shp = tmp.resolve("null.shp");
             List<CADEntity> entities = List.of(
@@ -1410,7 +1410,7 @@ class CADParserTest {
     @Test
     void shapefileWriter_mixedGeometry_shouldSelectDominantType() throws Exception {
         // 2 个 Polygon + 1 个 LineString → 主体为 Polygon → shape type 5
-        Path tmp = Files.createTempDirectory("shp_test_");
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
         try {
             Path shp = tmp.resolve("mixed.shp");
             Coordinate[] ring = {
@@ -1436,7 +1436,7 @@ class CADParserTest {
     @Test
     void shapefileWriter_polygon_withHole_shouldBeWritten() throws Exception {
         // 含洞多边形写入 Shapefile，记录数和文件均应正常
-        Path tmp = Files.createTempDirectory("shp_test_");
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
         try {
             Path shp = tmp.resolve("hole.shp");
             Coordinate[] outer = {
@@ -1463,7 +1463,7 @@ class CADParserTest {
 
     @Test
     void shapefileWriter_emptyEntities_shouldWriteValidEmptyFiles() throws Exception {
-        Path tmp = Files.createTempDirectory("shp_test_");
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
         try {
             Path shp = tmp.resolve("empty.shp");
             new ShapefileWriter().write(List.of(), shp);
@@ -1480,7 +1480,7 @@ class CADParserTest {
     @Test
     void shapefileWriter_shxOffsetConsistency_shouldMatchShpRecords() throws Exception {
         // SHX 中的偏移量应与 SHP 中实际记录位置一致
-        Path tmp = Files.createTempDirectory("shp_test_");
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
         try {
             Path shp = tmp.resolve("idx.shp");
             List<CADEntity> entities = List.of(
