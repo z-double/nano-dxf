@@ -5,6 +5,45 @@
 
 ---
 
+## [1.2.1] - 2026-05-21
+
+### 修复
+
+- **HATCH 路径计数 bug**：预过滤无效环（顶点数 < 2）后再写 code 91，防止路径总数与实际写出数量不匹配导致 DXF 结构损坏
+- **HATCH solid fill flag**：code 70 改为随 `hatchPattern` 动态决定（`SOLID` = 1，其他图案 = 0）
+- **HATCH 内环路径类型**：路径类型从 16（Outermost）改为 0（内边界），消除 LibreCAD/FreeCAD 误判风险
+- **ARC 零长度弧校验**：`startAngle == endAngle` 时跳过写出，防止静默产生无意义弧
+- **INSERT scale 写出一致性**：R2007 路径与 R12 保持一致，缩放因子为默认值 1.0 时不写出冗余 group code
+- **`computeExtent` 包围盒**：纳入块内实体坐标，修复含块定义时 `$EXTMIN/$EXTMAX` 偏小的问题
+- **`write()` null 参数防御**：公开 API 入口增加 `Objects.requireNonNull`，传入 null 时给出明确错误而非 NPE
+- **`EntityProperty.ROTATION` 注释**：更正旋转方向描述（逆时针为正，与 DXF code 50 标准一致）
+
+### 优化
+
+- **`fmt()` 格式串缓存**：预计算 `fmtPattern` 字段，大文件写出时减少字符串分配
+
+### 文档
+
+- `CADEntity.Types` 表格：补全 ARC / CIRCLE / HATCH / INSERT 的写出列说明
+- `CADBlock`：增加非线程安全说明
+- `DXFVersion`：增加写出路径限制说明（R2000/R2004 走 R2007 结构）
+- `CADEntity`：新增 `getGeometry()` JavaBean 风格别名方法
+
+### 构建
+
+- `pom.xml`：移除含占位符的 `distributionManagement` 块
+- `pom.xml`：`doclint` 从 `none` 改为 `html,reference`，保留有效 Javadoc 检查
+
+### 测试（新增 5 个）
+
+- `dxfWriter_hatch_withHole_roundTrip`：验证 HATCH 含洞写出后洞数量正确
+- `dxfWriter_arc_angleRoundTrip`：验证 ARC 起终角度写出正确
+- `dxfWriter_mtext_roundTrip`：MTEXT 写出后解析回读内容验证
+- `dxfWriter_insertWithBlock_r2007_roundTrip`：INSERT 展开后实体存在验证
+- `dxfWriter_write_nullArguments_shouldThrow`：null 参数防御验证
+
+---
+
 ## [1.2.0] - 2026-05-20
 
 ### 新增
