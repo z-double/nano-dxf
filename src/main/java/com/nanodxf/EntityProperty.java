@@ -293,6 +293,12 @@ public final class EntityProperty {
      */
     public static final String DIM_POINT2 = "dimPoint2";
 
+    /**
+     * 标注旋转角度（Double，度）。
+     * 对应 DXF code 50（线性标注的倾斜/旋转角）。
+     */
+    public static final String DIM_ROTATION = "dimRotation";
+
     // =========================================================================
     // 样条（SPLINE）
     // =========================================================================

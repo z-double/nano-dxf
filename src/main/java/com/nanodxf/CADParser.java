@@ -131,7 +131,15 @@ public class CADParser {
             EntitiesParser ep = new EntitiesParser();
             Spliterator<CADEntity> spliterator = ep.spliterator(reader, ctx);
 
-            return StreamSupport.stream(spliterator, false)
+            // Phase 1 完成后 ctx.metadata 已包含 $INSUNITS，此处预计算换算系数
+            final double unitFactor = config.isApplyUnitConversion()
+                    ? UNIT_CONVERTER.scaleFactor(ctx.metadata.getInsunits()) : 1.0;
+
+            Stream<CADEntity> entityStream = StreamSupport.stream(spliterator, false);
+            if (unitFactor != 1.0) {
+                entityStream = entityStream.map(e -> scaleEntity(e, unitFactor));
+            }
+            return entityStream
                     .onClose(() -> { try { reader.close(); } catch (IOException ignored) {} });
 
         } catch (IOException e) {

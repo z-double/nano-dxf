@@ -1,27 +1,16 @@
 package com.nanodxf;
 
 import com.nanodxf.entity.CADEntity;
-import com.nanodxf.EntityProperty;
 import com.nanodxf.geometry.AciColorTable;
 import com.nanodxf.geometry.GeometryBuilder;
 import com.nanodxf.model.CADBlock;
 import com.nanodxf.model.DXFVersion;
-import com.nanodxf.output.DXFWriteConfig;
-import com.nanodxf.output.DXFWriter;
-import com.nanodxf.output.GeoJsonSerializer;
+import com.nanodxf.output.*;
 import com.nanodxf.text.MTextCleaner;
 import com.nanodxf.xdata.FeatureCodeRegistry;
 import com.nanodxf.xdata.FeatureCodeRegistry.FeatureCodeInfo;
 import org.junit.jupiter.api.Test;
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.LineString;
-import org.locationtech.jts.geom.LinearRing;
-import org.locationtech.jts.geom.Point;
-import org.locationtech.jts.geom.Polygon;
-
-import com.nanodxf.output.ShapefileWriteConfig;
-import com.nanodxf.output.ShapefileWriter;
+import org.locationtech.jts.geom.*;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -29,7 +18,6 @@ import java.io.StringWriter;
 import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -39,7 +27,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * CADParser 全链路验证。
@@ -1061,7 +1050,7 @@ class CADParserTest {
 
     @Test
     void dxfWriter_spline_withoutControlPoints_fallsBackToLwPolyline() throws Exception {
-        // 无控制点时 SPLINE 应降级为 LWPOLYLINE
+        // 无控制点属性时 SPLINE 应降级为 LWPOLYLINE
         Coordinate[] coords = {
             new Coordinate(0, 0), new Coordinate(10, 5), new Coordinate(20, 0)};
         List<CADEntity> entities = List.of(
@@ -1072,7 +1061,29 @@ class CADParserTest {
 
         StringWriter sw = new StringWriter();
         new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
+        assertThat(sw.toString()).contains("LWPOLYLINE");
+    }
+
+    @Test
+    void dxfWriter_spline_withInsufficientControlPoints_fallsBackToLwPolyline() throws Exception {
+        // 控制点数 < degree+1（=4）时不能生成有效三次样条，应降级为 LWPOLYLINE
+        List<double[]> only3pts = List.of(
+            new double[]{0,0,0}, new double[]{10,20,0}, new double[]{30,5,0});
+        Coordinate[] coords = only3pts.stream()
+            .map(p -> new Coordinate(p[0], p[1])).toArray(Coordinate[]::new);
+
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.SPLINE)
+                .layer("样条")
+                .geometry(GF.createLineString(coords))
+                .property(EntityProperty.CONTROL_POINTS, only3pts)
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
         String dxf = sw.toString();
+        // 控制点不足时降级为折线，不生成 SPLINE
+        assertThat(dxf).doesNotContain("SPLINE");
         assertThat(dxf).contains("LWPOLYLINE");
     }
 
@@ -1179,6 +1190,38 @@ class CADParserTest {
 
             assertThat(streamed).hasSize(fullCount);
             assertThat(streamed).hasSize(3);
+        } finally {
+            java.nio.file.Files.deleteIfExists(tmpFile);
+        }
+    }
+
+    @Test
+    void parseStream_shouldApplyUnitConversion() throws Exception {
+        // $INSUNITS=4（毫米），parseStream 结果坐标应换算为米，与 parse() 一致
+        String dxf =
+            "  0\nSECTION\n  2\nHEADER\n" +
+            "  9\n$INSUNITS\n 70\n4\n" +
+            "  0\nENDSEC\n" +
+            "  0\nSECTION\n  2\nENTITIES\n" +
+            "  0\nLINE\n  8\n0\n 10\n1000\n 20\n0\n 30\n0\n 11\n2000\n 21\n0\n 31\n0\n" +
+            "  0\nENDSEC\n  0\nEOF\n";
+
+        java.nio.file.Path tmpFile = java.nio.file.Files.createTempFile(
+                Paths.get("target"), "test_stream_units_", ".dxf");
+        try {
+            java.nio.file.Files.writeString(tmpFile, dxf);
+            List<CADEntity> streamed = new ArrayList<>();
+            try (Stream<CADEntity> stream = new CADParser().parseStream(tmpFile)) {
+                stream.forEach(streamed::add);
+            }
+            assertThat(streamed).hasSize(1);
+            org.locationtech.jts.geom.LineString ls =
+                (org.locationtech.jts.geom.LineString) streamed.get(0).geometry();
+            // 1000mm → 1.0m（换算系数 0.001）
+            assertThat(ls.getStartPoint().getX())
+                .isCloseTo(1.0, org.assertj.core.data.Offset.offset(1e-9));
+            assertThat(ls.getEndPoint().getX())
+                .isCloseTo(2.0, org.assertj.core.data.Offset.offset(1e-9));
         } finally {
             java.nio.file.Files.deleteIfExists(tmpFile);
         }

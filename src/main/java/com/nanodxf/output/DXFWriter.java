@@ -412,8 +412,8 @@ public class DXFWriter {
     private void writeSplineR12(LineWriter w, LineString ls, CADEntity e) throws IOException {
         @SuppressWarnings("unchecked")
         List<double[]> ctrlPts = (List<double[]>) e.getProperties().get("controlPoints");
-        if (ctrlPts != null && ctrlPts.size() >= 2) {
-            int degree = 3;
+        int degree = 3;
+        if (ctrlPts != null && ctrlPts.size() >= degree + 1) {
             double[] knots = generateClampedKnots(ctrlPts.size(), degree);
             pair(w, 0, "SPLINE");
             writeR12Common(w, e);
@@ -1011,8 +1011,8 @@ public class DXFWriter {
                                    String ownerBR, int[] h) throws IOException {
         @SuppressWarnings("unchecked")
         List<double[]> ctrlPts = (List<double[]>) e.getProperties().get("controlPoints");
-        if (ctrlPts != null && ctrlPts.size() >= 2) {
-            int degree = 3;
+        int degree = 3;
+        if (ctrlPts != null && ctrlPts.size() >= degree + 1) {
             double[] knots = generateClampedKnots(ctrlPts.size(), degree);
             pair(w, 0, "SPLINE");
             writeR2000Common(w, e, ownerBR, h);

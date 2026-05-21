@@ -76,7 +76,7 @@ public class DimensionHandler implements EntityHandler {
             builder.property(EntityProperty.DIM_POINT2, new double[]{p2x, p2y});
 
         if (!Double.isNaN(dimRotation))
-            builder.property("dimRotation", dimRotation);
+            builder.property(EntityProperty.DIM_ROTATION, dimRotation);
 
         return List.of(builder.build());
     }
