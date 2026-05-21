@@ -1267,6 +1267,144 @@ $HANDSEED 调整为 0x2000
 | P2 | XDATA 写出 | 地物编码保留（数据往返完整性）|
 | P3 | 块定义 + INSERT 写出 | 点状符号库（场景较少）|
 
+### 18.8 v1.3.0 扩展规划
+
+#### 总体目标
+
+以**读写对称、解析增强、流式 API、新输出格式**为主线，面向生产级 GIS 使用场景。
+
+#### 功能优先级
+
+**P1 — 无新依赖，快速收益**
+
+| 功能 | 方向 | 工作量 | 说明 |
+|---|---|---|---|
+| SOLID / 3DFACE 写出 | A | 小 | 4 顶点直接映射，结构简单 |
+| ELLIPSE 写出 | A | 中 | 需在 properties 存长轴向量 + 轴比 |
+| DIMENSION 值提取增强 | C | 中 | 读 code 42（测量值）、13/23/33（定义点） |
+| LEADER 解析 | C | 中 | 新增 LeaderHandler，解析引线顶点序列 |
+| 流式解析 API | D | 中 | `parseStream(Path)` 返回 `Stream<CADEntity>`，大文件内存友好 |
+
+**P2 — 核心功能，复杂度高**
+
+| 功能 | 方向 | 工作量 | 说明 |
+|---|---|---|---|
+| Shapefile 输出 | E | 大 | 自实现 SHP/DBF/SHX，无重依赖 |
+| SPLINE 写出 | A | 中大 | 需 SplineHandler 增强：解析时额外存控制点到 properties |
+
+**P3 — 延后至 v1.4.0**
+
+| 功能 | 方向 | 说明 |
+|---|---|---|
+| GeoPackage 输出 | E | 需要 sqlite-jdbc 依赖，复杂度适中 |
+| MULTILEADER 解析 | C | 实体结构极复杂（嵌套 MText + 多引线），工作量大 |
+
+#### 写出 API 新约定
+
+**ELLIPSE（type=ELLIPSE，geometry=Point 圆心）**
+
+| 属性键 | 类型 | DXF code | 说明 |
+|---|---|---|---|
+| `majorAxisX` | Double | 11 | 长轴端点向量 X（相对圆心） |
+| `majorAxisY` | Double | 21 | 长轴端点向量 Y（相对圆心） |
+| `axisRatio` | Double | 40 | 短轴 / 长轴比（0~1） |
+| `startAngle` | Double | 41 | 参数角起始（弧度，默认 0） |
+| `endAngle` | Double | 42 | 参数角终止（弧度，默认 2π） |
+
+**SOLID（type=SOLID，geometry=Polygon 4顶点）**
+
+直接从 Polygon 外环取前 4 个顶点，对应 code 10/11/12/13。
+
+**3DFACE（type=3DFACE，geometry=LinearRing 4~5顶点）**
+
+直接从 LinearRing 取前 4 个顶点，对应 code 10/11/12/13；code 70 边可见性标志默认全可见（0）。
+
+**SPLINE（type=SPLINE，geometry=LineString，需 controlPoints 属性）**
+
+SplineHandler 解析时额外存储控制点：
+
+```java
+// 解析结果新增属性
+entity.getProperties().get(EntityProperty.CONTROL_POINTS)
+// → List<double[]>，每个元素为 [x, y, z]
+```
+
+写出时优先使用 `controlPoints` 属性构造 DXF SPLINE；若属性缺失，将 LineString 点序列降级为 LWPOLYLINE 写出。
+
+#### 流式解析 API 设计
+
+```java
+// 两阶段流式：先收集块定义，再惰性流出实体
+// 第一阶段（快）：全量读取 BLOCKS 段（通常远小于 ENTITIES 段）
+// 第二阶段（惰性）：逐实体解析 ENTITIES 段，INSERT 展开即时执行
+try (Stream<CADEntity> stream = new CADParser(config).parseStream(path)) {
+    stream.filter(e -> CADEntity.Types.LWPOLYLINE.equals(e.getType()))
+          .limit(10_000)
+          .forEach(myProcessor::accept);
+}
+```
+
+**注意**：`parseStream()` 返回的 Stream 持有文件句柄，必须在 try-with-resources 中使用。
+
+#### Shapefile 输出 API 设计
+
+```java
+ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
+    .crs("EPSG:4545")       // 坐标参考系，写入 .prj 文件
+    .encoding("GBK")        // .dbf 字符集（国内 GIS 工具需 GBK）
+    .coordinateDecimalPlaces(4)
+    .build();
+
+new ShapefileWriter(cfg).write(result.getEntities(), Paths.get("output.shp"));
+// 输出：output.shp（几何）+ output.dbf（属性）+ output.shx（索引）+ output.prj（投影）
+```
+
+几何类型映射：
+
+| JTS 几何 | Shapefile 类型 |
+|---|---|
+| Point | POINT |
+| MultiPoint | MULTIPOINT |
+| LineString / MultiLineString | POLYLINE |
+| Polygon / MultiPolygon | POLYGON |
+| GeometryCollection（混合）| 按主体类型决定，其余忽略 |
+
+属性字段映射（DBF）：
+
+| CADEntity 属性 | DBF 字段名 | 类型 |
+|---|---|---|
+| `layer` | LAYER | C(64) |
+| `type` | ETYPE | C(16) |
+| `text` | TEXT | C(254) |
+| `featureCode` | FEAT_CODE | C(32) |
+| `featureType` | FEAT_TYPE | C(64) |
+| `colorAci` | COLOR | N(4) |
+| `elevation` | ELEVATION | N(10,4) |
+
+#### DIMENSION 解析增强
+
+当前 DimensionHandler 只输出文字中点和 `text` / `dimType` 属性，v1.3.0 增加：
+
+| 新属性键 | DXF code | 说明 |
+|---|---|---|
+| `dimensionValue` | 42 | 实测值（CAD 自动计算的距离/角度数值） |
+| `dimPoint1` | 13/23/33 | 第一个测量定义点（Coordinate） |
+| `dimPoint2` | 14/24/34 | 第二个测量定义点（Coordinate） |
+| `dimRotation` | 50 | 旋转角度（线性标注的倾斜角，度） |
+
+#### 新增/修改文件清单
+
+| 文件 | 操作 |
+|---|---|
+| `output/ShapefileWriter.java` | 新建 |
+| `output/ShapefileWriteConfig.java` | 新建 |
+| `entity/handler/DimensionHandler.java` | 增强：提取测量值和定义点 |
+| `entity/handler/LeaderHandler.java` | 新建 |
+| `entity/handler/SplineHandler.java` | 增强：存储控制点到 properties |
+| `output/DXFWriter.java` | 增强：新增 SOLID/3DFACE/ELLIPSE/SPLINE 写出 |
+| `EntityProperty.java` | 增强：新增 8 个常量 |
+| `CADParser.java` | 增强：新增 `parseStream(Path)` 方法 |
+
 ---
 
 ## 19. API 稳定性声明
