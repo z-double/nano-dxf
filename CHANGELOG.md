@@ -35,10 +35,18 @@
 - `DIMENSION_VALUE`：DIMENSION 实测值（code 42）
 - `DIMENSION_TYPE`：DIMENSION 类型标志（code 70）
 - `DIM_POINT1` / `DIM_POINT2`：DIMENSION 第一/第二定义点
+- `DIM_ROTATION`：DIMENSION 旋转角度（code 50，度）
 - `CONTROL_POINTS`：SPLINE 控制点列表
 
-### 测试（新增 8 个）
+### 修复
 
+- **`parseStream()` 单位换算缺失**：Phase 1（HEADER 解析）完成后预计算换算系数，用 `map(scaleEntity)` 逐实体换算，与 `parse()` 行为一致
+- **SPLINE 控制点不足时写出无效节点向量**：三次样条要求控制点 ≥ `degree+1 = 4`，不足时改降级为 LWPOLYLINE（原阈值 ≥ 2 过宽）
+- **`DimensionHandler` 属性键字面量**：`"dimRotation"` 改为 `EntityProperty.DIM_ROTATION` 常量，消除拼写风险
+
+### 测试（新增 13 个）
+
+**功能测试（10 个）**
 - `dxfWriter_solid_shouldProduceSolidEntity`
 - `dxfWriter_3dface_shouldProduceFaceEntity`
 - `dxfWriter_ellipse_shouldProduceEllipseEntity`
@@ -49,6 +57,11 @@
 - `splineHandler_shouldStoreControlPoints`
 - `parseStream_shouldReturnSameEntitiesAsParseResult`
 - `parseStream_shouldSupportFilter`
+
+**Bug 修复验证（3 个）**
+- `parseStream_shouldApplyUnitConversion`
+- `dxfWriter_spline_withInsufficientControlPoints_fallsBackToLwPolyline`
+- `generateComplexShapefile`（Shapefile 样例集成测试）
 
 ---
 
