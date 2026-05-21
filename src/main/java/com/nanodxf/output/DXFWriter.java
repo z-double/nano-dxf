@@ -86,9 +86,14 @@ public class DXFWriter {
     private static final int H_USER_ENT_BASE = 0x300;  // 用户块内实体句柄起始
 
     private final DXFWriteConfig config;
+    /** 坐标格式串，预计算避免 fmt() 每次拼接字符串（Task #8）。 */
+    private final String fmtPattern;
 
     public DXFWriter() { this(DXFWriteConfig.defaults()); }
-    public DXFWriter(DXFWriteConfig config) { this.config = config; }
+    public DXFWriter(DXFWriteConfig config) {
+        this.config = config;
+        this.fmtPattern = "%." + config.getCoordinateDecimalPlaces() + "f";
+    }
 
     // =========================================================================
     // 公开 API
@@ -115,6 +120,9 @@ public class DXFWriter {
 
     /** 写出块定义 + 实体列表到 Writer。 */
     public void write(List<CADBlock> blocks, List<CADEntity> entities, Writer out) throws IOException {
+        Objects.requireNonNull(blocks,   "blocks must not be null");
+        Objects.requireNonNull(entities, "entities must not be null");
+        Objects.requireNonNull(out,      "out must not be null");
         LineWriter w = new LineWriter(out);
         Map<String, LayerInfo> layerInfo = collectLayerInfo(entities, blocks);
 
@@ -284,13 +292,17 @@ public class DXFWriter {
     private void writeArcR12(LineWriter w, Point center, CADEntity e) throws IOException {
         double radius = dblProp(e, "radius", 0.0);
         if (radius <= 0) return;
+        double sa = dblProp(e, "startAngle", 0.0);
+        double ea = dblProp(e, "endAngle", 360.0);
+        // 零长度弧（起终角相同）跳过；startAngle=0/endAngle=360 属合法整圆弧，不跳过
+        if (Math.abs(ea - sa) < 1e-9) return;
         pair(w, 0, "ARC");
         writeR12Common(w, e);
         pair(w, 10, fmt(center.getX())); pair(w, 20, fmt(center.getY()));
         pair(w, 30, fmtZ(center.getCoordinate().getZ()));
         pair(w, 40, fmt(radius));
-        pair(w, 50, fmt(dblProp(e, "startAngle", 0.0)));
-        pair(w, 51, fmt(dblProp(e, "endAngle", 360.0)));
+        pair(w, 50, fmt(sa));
+        pair(w, 51, fmt(ea));
     }
 
     private void writeCircleR12(LineWriter w, Point center, CADEntity e) throws IOException {
@@ -722,27 +734,36 @@ public class DXFWriter {
     private void writeHatchR2000(LineWriter w, Polygon poly, CADEntity e,
                                   String ownerBR, int[] h) throws IOException {
         String pattern = strPropOrDefault(e, "hatchPattern", "SOLID");
-        Point interior = poly.getInteriorPoint();
-        int numPaths = 1 + poly.getNumInteriorRing(); // 外环 + 洞
+
+        // 预过滤无效环（避免 code 91 路径总数与实际写出数量不匹配导致结构损坏）
+        Coordinate[] outerCoords = poly.getExteriorRing().getCoordinates();
+        if (trimClosedEnd(outerCoords, true) < 2) return;
+
+        List<Coordinate[]> validHoles = new ArrayList<>();
+        for (int i = 0; i < poly.getNumInteriorRing(); i++) {
+            Coordinate[] hc = poly.getInteriorRingN(i).getCoordinates();
+            if (trimClosedEnd(hc, true) >= 2) validHoles.add(hc);
+        }
+        int numPaths = 1 + validHoles.size();
 
         pair(w, 0, "HATCH");
         writeR2000Common(w, e, ownerBR, h);
         pair(w, 100, "AcDbHatch");
-        // 高程点（2D 图形均为 0）
         pair(w, 10, fmt(0.0)); pair(w, 20, fmt(0.0)); pair(w, 30, fmt(0.0));
-        // 拉伸向量（WCS Z 轴方向）
         pair(w, 210, fmt(0.0)); pair(w, 220, fmt(0.0)); pair(w, 230, fmt(1.0));
         pair(w, 2, pattern);
-        pair(w, 70, "1");   // solid fill flag
+        // solid fill flag：SOLID 图案为 1，其他图案为 0
+        pair(w, 70, "SOLID".equalsIgnoreCase(pattern) ? "1" : "0");
         pair(w, 71, "0");   // not associative
         pair(w, 91, String.valueOf(numPaths));
 
-        // 外环边界路径（path type = 1: External，edge 格式，不含 Polyline bit=2）
-        writeHatchBoundaryPath(w, poly.getExteriorRing().getCoordinates(), 1);
-        // 内环（洞）边界路径（path type = 16: Outermost，bit 0 未置，HatchHandler 识别为洞）
-        for (int i = 0; i < poly.getNumInteriorRing(); i++)
-            writeHatchBoundaryPath(w, poly.getInteriorRingN(i).getCoordinates(), 16);
+        // 外环路径（path type = 1: External，edge 格式）
+        writeHatchBoundaryPath(w, outerCoords, 1);
+        // 内环（洞）路径（path type = 0: Default/inner，bit 0 未置，HatchHandler 识别为洞）
+        for (Coordinate[] hc : validHoles)
+            writeHatchBoundaryPath(w, hc, 0);
 
+        Point interior = poly.getInteriorPoint();
         pair(w, 75, "1");   // hatch style: normal
         pair(w, 76, "1");   // pattern type: predefined
         pair(w, 98, "1");   // seed point count
@@ -785,8 +806,12 @@ public class DXFWriter {
         pair(w, 2, blockName);
         pair(w, 10, fmt(p.getX())); pair(w, 20, fmt(p.getY())); pair(w, 30, fmtZ(p.getCoordinate().getZ()));
         double sx = dblProp(e, "scaleX", 1.0), sy = dblProp(e, "scaleY", 1.0), sz = dblProp(e, "scaleZ", 1.0);
-        pair(w, 41, fmt(sx)); pair(w, 42, fmt(sy)); pair(w, 43, fmt(sz));
-        pair(w, 50, fmt(dblProp(e, "rotation", 0.0)));
+        // 与 R12 路径保持一致：只写非默认值（1.0）
+        if (Math.abs(sx - 1.0) > 1e-9) pair(w, 41, fmt(sx));
+        if (Math.abs(sy - 1.0) > 1e-9) pair(w, 42, fmt(sy));
+        if (Math.abs(sz - 1.0) > 1e-9) pair(w, 43, fmt(sz));
+        double rot = dblProp(e, "rotation", 0.0);
+        if (Math.abs(rot) > 1e-9) pair(w, 50, fmt(rot));
     }
 
     private void writeTextR2000(LineWriter w, Point p, CADEntity e,
@@ -943,13 +968,16 @@ public class DXFWriter {
         return set;
     }
 
-    /** 计算所有实体（含块内实体）的包围盒 [minX, minY, minZ, maxX, maxY, maxZ]。 */
+    /** 计算所有实体（主实体 + 块内实体）的包围盒 [minX, minY, minZ, maxX, maxY, maxZ]。 */
     private double[] computeExtent(List<CADEntity> entities, List<CADBlock> blocks) {
         double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY, minZ = Double.POSITIVE_INFINITY;
         double maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY, maxZ = Double.NEGATIVE_INFINITY;
         boolean hasGeom = false;
 
-        for (CADEntity e : entities) {
+        List<CADEntity> all = new ArrayList<>(entities);
+        for (CADBlock b : blocks) all.addAll(b.entities());
+
+        for (CADEntity e : all) {
             if (e.geometry() == null) continue;
             hasGeom = true;
             for (Coordinate c : e.geometry().getCoordinates()) {
@@ -991,9 +1019,7 @@ public class DXFWriter {
     private String fmt(double v) {
         if (Math.abs(v) >= 1e15 || (v != 0.0 && Math.abs(v) < 1e-9))
             return String.format("%.15E", v);
-        // 动态构造 format pattern 变量，避免 IDE 对字符串拼接形式的误报
-        String pattern = "%." + config.getCoordinateDecimalPlaces() + "f";
-        return String.format(pattern, v);
+        return String.format(fmtPattern, v); // 使用预计算的格式串
     }
 
     private String fmtZ(double z) { return Double.isNaN(z) ? fmt(0.0) : fmt(z); }

@@ -79,7 +79,7 @@ public final class EntityProperty {
     public static final String HEIGHT = "height";
 
     /**
-     * 文字旋转角度（Double，度，顺时针为正）。
+     * 文字旋转角度（Double，度，**逆时针**为正，与 DXF code 50 标准一致）。
      * 对应 DXF code 50。写出时默认值 0.0（水平）。
      */
     public static final String ROTATION = "rotation";

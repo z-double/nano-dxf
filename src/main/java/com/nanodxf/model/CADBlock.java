@@ -19,6 +19,10 @@ import java.util.List;
  * <p>块内的 INSERT（嵌套块引用）在 {@link com.nanodxf.section.BlocksParser} 阶段
  * 存为占位 {@link CADEntity}（不展开），由
  * {@link com.nanodxf.entity.handler.InsertHandler} 在 ENTITIES 阶段递归展开。
+ *
+ * <p><b>线程安全</b>：本类非线程安全。{@link #addEntity(CADEntity)} 和
+ * {@link #setInsertionPoint(double, double, double)} 应在单线程中完成，
+ * 再传入 {@link com.nanodxf.output.DXFWriter} 写出。
  */
 public class CADBlock {
 

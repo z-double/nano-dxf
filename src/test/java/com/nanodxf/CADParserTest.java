@@ -794,6 +794,125 @@ class CADParserTest {
     }
 
     @Test
+    void dxfWriter_hatch_withHole_roundTrip() throws Exception {
+        // HATCH 含洞：解析回来的 Polygon 应有 1 个内环
+        Coordinate[] outer = {
+            new Coordinate(0, 0), new Coordinate(20, 0),
+            new Coordinate(20, 20), new Coordinate(0, 20), new Coordinate(0, 0)
+        };
+        Coordinate[] hole = {
+            new Coordinate(5, 5), new Coordinate(15, 5),
+            new Coordinate(15, 15), new Coordinate(5, 15), new Coordinate(5, 5)
+        };
+        Polygon poly = GF.createPolygon(GF.createLinearRing(outer),
+                                         new LinearRing[]{GF.createLinearRing(hole)});
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.HATCH).layer("填充").geometry(poly).build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
+
+        ParseResult result = new CADParser(
+            ParseConfig.builder().applyUnitConversion(false).build())
+            .parse(new StringReader(sw.toString()));
+        assertThat(result.getEntities()).hasSize(1);
+        Polygon parsed = (Polygon) result.getEntities().get(0).geometry();
+        assertThat(parsed.getNumInteriorRing()).isEqualTo(1);
+    }
+
+    @Test
+    void dxfWriter_arc_angleRoundTrip() throws Exception {
+        // ARC 写出：DXF 中应包含正确的起终角度值
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.ARC)
+                .layer("弧形")
+                .geometry(GF.createPoint(new Coordinate(0, 0)))
+                .property(EntityProperty.RADIUS,      10.0)
+                .property(EntityProperty.START_ANGLE, 45.0)
+                .property(EntityProperty.END_ANGLE,   225.0)
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
+        String dxf = sw.toString();
+
+        assertThat(dxf).contains("ARC");
+        assertThat(dxf).contains("45.0000");  // startAngle
+        assertThat(dxf).contains("225.0000"); // endAngle
+        assertThat(dxf).contains("10.0000");  // radius
+    }
+
+    @Test
+    void dxfWriter_mtext_roundTrip() throws Exception {
+        // MTEXT 写出后解析回读，文字内容应保留
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.MTEXT)
+                .layer("注记")
+                .geometry(GF.createPoint(new Coordinate(10, 10)))
+                .property(EntityProperty.TEXT, "测试文字\\P第二行")
+                .property(EntityProperty.HEIGHT, 3.0)
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build()).write(entities, sw);
+        String dxf = sw.toString();
+
+        assertThat(dxf).contains("MTEXT");
+        assertThat(dxf).contains("测试文字");
+
+        ParseResult result = new CADParser(
+            ParseConfig.builder().applyUnitConversion(false).build())
+            .parse(new StringReader(dxf));
+        assertThat(result.getEntities()).hasSize(1);
+        CADEntity e = result.getEntities().get(0);
+        assertThat(e.getType()).isEqualTo("MTEXT");
+        assertThat(e.getProperties().get(EntityProperty.TEXT)).asString().contains("测试文字");
+    }
+
+    @Test
+    void dxfWriter_insertWithBlock_r2007_roundTrip() throws Exception {
+        // INSERT + 块定义写出：解析回来块内实体应能展开
+        CADBlock block = new CADBlock("CROSS");
+        block.setInsertionPoint(0, 0, 0);
+        block.addEntity(CADEntity.builder(CADEntity.Types.LINE)
+            .layer("0")
+            .geometry(GF.createLineString(new Coordinate[]{
+                new Coordinate(-1, 0), new Coordinate(1, 0)}))
+            .build());
+
+        List<CADEntity> entities = List.of(
+            CADEntity.builder(CADEntity.Types.INSERT)
+                .layer("符号")
+                .geometry(GF.createPoint(new Coordinate(50, 50)))
+                .property(EntityProperty.BLOCK_NAME, "CROSS")
+                .build());
+
+        StringWriter sw = new StringWriter();
+        new DXFWriter(DXFWriteConfig.builder().version(DXFVersion.R2007).build())
+            .write(List.of(block), entities, sw);
+        String dxf = sw.toString();
+
+        assertThat(dxf).contains("INSERT");
+        assertThat(dxf).contains("CROSS");
+        // 解析时 INSERT 应被展开为块内的 LINE 实体
+        ParseResult result = new CADParser(
+            ParseConfig.builder().applyUnitConversion(false).build())
+            .parse(new StringReader(dxf));
+        assertThat(result.getEntities()).isNotEmpty();
+        assertThat(result.getEntities().stream()
+            .anyMatch(e -> "LINE".equals(e.getType()))).isTrue();
+    }
+
+    @Test
+    void dxfWriter_write_nullArguments_shouldThrow() {
+        DXFWriter writer = new DXFWriter();
+        assertThatThrownBy(() -> writer.write((List<CADEntity>) null, new StringWriter()))
+            .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> writer.write(List.of(), (List<CADEntity>) null, new StringWriter()))
+            .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
     void dxfWriter_insertWithBlock_shouldContainBlockAndInsert() throws Exception {
         // 块定义 + INSERT：BLOCKS 段应含块定义，ENTITIES 段应含 INSERT
         CADBlock block = new CADBlock("SYM");

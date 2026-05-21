@@ -13,6 +13,11 @@ package com.nanodxf.model;
  *
  * <p>通过 {@link #fromString(String)} 从 {@code $ACADVER} 字符串解析，
  * 未知版本返回 {@link #UNKNOWN}。
+ *
+ * <p><b>写出注意</b>：{@link com.nanodxf.output.DXFWriter} 仅实现两条路径：
+ * {@link #R12}（最简格式）和以 R2007 为基准的完整路径（R2000/R2004/R2007/R2010+ 均走此路径）。
+ * 设置 R2000 或 R2004 时，文件头写对应版本字符串，但结构始终为 R2007 完整格式，
+ * 不建议使用中间版本（浩辰 CAD 要求最低 R2007）。
  */
 public enum DXFVersion {
     R12("AC1009"),

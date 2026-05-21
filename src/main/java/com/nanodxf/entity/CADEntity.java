@@ -58,6 +58,12 @@ public class CADEntity {
      */
     public Geometry geometry() { return geometry; }
 
+    /**
+     * 返回 JTS 几何对象（JavaBean 风格别名，等价于 {@link #geometry()}）。
+     * 供反射框架、IDE 自动补全等场景使用。
+     */
+    public Geometry getGeometry() { return geometry; }
+
     /** 扩展属性（不可变视图），包括 elevation、featureCode、xdata 等。 */
     public Map<String, Object> getProperties() { return properties; }
 
@@ -114,8 +120,8 @@ public class CADEntity {
      * <table border="1">
      *   <tr><th>常量</th><th>解析输出几何</th><th>写出实体</th></tr>
      *   <tr><td>LINE</td><td>LineString（2点）</td><td>LINE</td></tr>
-     *   <tr><td>ARC</td><td>LineString（弦高离散）</td><td>—</td></tr>
-     *   <tr><td>CIRCLE</td><td>LinearRing（闭合）</td><td>—</td></tr>
+     *   <tr><td>ARC</td><td>LineString（弦高离散）</td><td>ARC（需 geometry=Point + radius/startAngle/endAngle）</td></tr>
+     *   <tr><td>CIRCLE</td><td>LinearRing（闭合）</td><td>CIRCLE（需 geometry=Point + radius）</td></tr>
      *   <tr><td>ELLIPSE</td><td>LineString / LinearRing</td><td>—</td></tr>
      *   <tr><td>POINT</td><td>Point（含 Z 高程）</td><td>POINT</td></tr>
      *   <tr><td>LWPOLYLINE</td><td>LineString / LinearRing / Polygon</td><td>LWPOLYLINE</td></tr>
@@ -123,8 +129,8 @@ public class CADEntity {
      *   <tr><td>SPLINE</td><td>LineString（de Boor 离散）</td><td>—</td></tr>
      *   <tr><td>TEXT</td><td>Point（插入点）</td><td>TEXT</td></tr>
      *   <tr><td>MTEXT</td><td>Point（插入点）</td><td>MTEXT</td></tr>
-     *   <tr><td>HATCH</td><td>Polygon（外环+洞）</td><td>—</td></tr>
-     *   <tr><td>INSERT</td><td>展开为子实体集合</td><td>—</td></tr>
+     *   <tr><td>HATCH</td><td>Polygon（外环+洞）</td><td>HATCH SOLID（需 geometry=Polygon）</td></tr>
+     *   <tr><td>INSERT</td><td>展开为子实体集合</td><td>INSERT（需 geometry=Point + blockName）</td></tr>
      *   <tr><td>DIMENSION</td><td>Point（标注插入点）</td><td>—</td></tr>
      * </table>
      *
