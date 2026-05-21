@@ -6,6 +6,8 @@ import com.nanodxf.model.CADBlock;
 import com.nanodxf.model.DXFVersion;
 import com.nanodxf.output.DXFWriteConfig;
 import com.nanodxf.output.DXFWriter;
+import com.nanodxf.output.ShapefileWriteConfig;
+import com.nanodxf.output.ShapefileWriter;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.*;
 
@@ -594,6 +596,242 @@ class DXFWriterSampleTest {
 
         System.out.println("R12 测试文件：" + outFile.toAbsolutePath());
         assertThat(Files.exists(outFile)).isTrue();
+    }
+
+    // =========================================================================
+    // v1.3.0 Shapefile 复杂样例
+    // =========================================================================
+
+    /**
+     * 生成三个 Shapefile（点/线/面）模拟完整测绘场景。
+     *
+     * <ul>
+     *   <li>{@code target/sample/shp/高程点.shp} — 高程控制点，含 elevation、featureCode、featureType</li>
+     *   <li>{@code target/sample/shp/道路.shp}   — 道路折线，含 text（路名）、featureCode</li>
+     *   <li>{@code target/sample/shp/建筑.shp}   — 建筑多边形（含洞），含 text（楼号）、featureType</li>
+     * </ul>
+     */
+    @Test
+    void generateComplexShapefile() throws IOException {
+        Path outDir = Paths.get("target/sample/shp");
+        Files.createDirectories(outDir);
+
+        ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
+                .crs("EPSG:4549")           // CGCS2000 / 3度带 117°E
+                .encoding("GBK")
+                .coordinateDecimalPlaces(3)
+                .build();
+
+        // ── 1. 高程点（Point） ──────────────────────────────────────────────
+        List<CADEntity> pointEntities = buildElevationPointEntities();
+        new ShapefileWriter(cfg).write(pointEntities, outDir.resolve("高程点.shp"));
+
+        // ── 2. 道路线（Polyline） ───────────────────────────────────────────
+        List<CADEntity> lineEntities = buildRoadLineEntities();
+        new ShapefileWriter(cfg).write(lineEntities, outDir.resolve("道路.shp"));
+
+        // ── 3. 建筑面（Polygon） ────────────────────────────────────────────
+        List<CADEntity> polyEntities = buildBuildingPolygonEntities();
+        new ShapefileWriter(cfg).write(polyEntities, outDir.resolve("建筑.shp"));
+
+        // 验证：三个 shp 及其配套文件均已生成
+        for (String name : List.of("高程点", "道路", "建筑")) {
+            assertThat(outDir.resolve(name + ".shp")).exists();
+            assertThat(outDir.resolve(name + ".shx")).exists();
+            assertThat(outDir.resolve(name + ".dbf")).exists();
+            assertThat(outDir.resolve(name + ".prj")).exists();
+        }
+
+        // 验证记录数
+        assertThat(readDbfCount(outDir.resolve("高程点.dbf"))).isEqualTo(pointEntities.size());
+        assertThat(readDbfCount(outDir.resolve("道路.dbf"))).isEqualTo(lineEntities.size());
+        assertThat(readDbfCount(outDir.resolve("建筑.dbf"))).isEqualTo(polyEntities.size());
+
+        System.out.printf("高程点：%d 条，道路：%d 条，建筑：%d 条%n",
+                pointEntities.size(), lineEntities.size(), polyEntities.size());
+        System.out.println("输出目录：" + outDir.toAbsolutePath());
+    }
+
+    // ── 高程点实体构建 ──────────────────────────────────────────────────────
+
+    private List<CADEntity> buildElevationPointEntities() {
+        // 模拟 20 个高程控制点，覆盖典型测绘属性
+        record ElevPt(double x, double y, double z, String code, String name) {}
+        List<ElevPt> pts = List.of(
+            new ElevPt( 20.000,  50.000, 12.345, "24201", "导线点"),
+            new ElevPt( 55.123,  35.456, 15.678, "24101", "水准点"),
+            new ElevPt( 90.234,  70.789, 18.234, "24201", "导线点"),
+            new ElevPt(130.345,  45.012, 22.567, "24101", "水准点"),
+            new ElevPt(165.456,  65.345, 28.123, "24201", "导线点"),
+            new ElevPt(180.567, 120.678, 32.456, "24101", "水准点"),
+            new ElevPt( 50.678, 160.901, 10.567, "24201", "导线点"),
+            new ElevPt(120.789, 170.234, 8.890,  "24101", "水准点"),
+            new ElevPt(170.890, 180.567, 6.234,  "24201", "导线点"),
+            new ElevPt( 35.901,  90.890, 14.012, "24101", "水准点"),
+            new ElevPt( 80.012,  30.123, 20.345, "24201", "导线点"),
+            new ElevPt(150.123, 110.456, 25.678, "24101", "水准点"),
+            new ElevPt( 10.234,  10.789, 5.901,  "24201", "导线点"),
+            new ElevPt(190.345,  15.012, 7.234,  "24101", "水准点"),
+            new ElevPt( 95.456,  95.345, 16.567, "24201", "导线点"),
+            new ElevPt( 45.567, 130.678, 11.890, "24101", "水准点"),
+            new ElevPt(140.678,  25.901, 30.123, "24201", "导线点"),
+            new ElevPt( 75.789, 185.234, 4.456,  "24101", "水准点"),
+            new ElevPt(110.890,  55.567, 19.789, "24201", "导线点"),
+            new ElevPt( 25.901, 145.890, 9.012,  "24101", "水准点")
+        );
+
+        List<CADEntity> out = new ArrayList<>();
+        for (int i = 0; i < pts.size(); i++) {
+            ElevPt p = pts.get(i);
+            out.add(CADEntity.builder(CADEntity.Types.POINT)
+                    .layer("高程点")
+                    .geometry(GF.createPoint(new Coordinate(p.x(), p.y(), p.z())))
+                    .property(EntityProperty.COLOR_ACI, AciColor.RED)
+                    .property(EntityProperty.ELEVATION, p.z())
+                    .property(EntityProperty.FEATURE_CODE, p.code())
+                    .property(EntityProperty.FEATURE_TYPE, p.name())
+                    .property(EntityProperty.TEXT, String.format("P%02d H=%.3f", i + 1, p.z()))
+                    .build());
+        }
+        return out;
+    }
+
+    // ── 道路线实体构建 ──────────────────────────────────────────────────────
+
+    private List<CADEntity> buildRoadLineEntities() {
+        record Road(String name, String code, String type, int aci, Coordinate[] pts) {}
+
+        Coordinate[] mainRoadEW = {c(0,120), c(40,118), c(80,120), c(120,122), c(160,120), c(200,120)};
+        Coordinate[] mainRoadNS = {c(100,0), c(101,40), c(100,80), c(100,120), c(99,160), c(100,200)};
+        Coordinate[] secondaryA = {c(50,60), c(50,120)};
+        Coordinate[] secondaryB = {c(0,60), c(50,60), c(100,58)};
+        Coordinate[] alleyA    = {c(60,60), c(60,90)};
+        Coordinate[] alleyB    = {c(80,90), c(80,120)};
+        Coordinate[] sidewalkN = {c(0,123), c(200,123)};
+        Coordinate[] sidewalkS = {c(0,117), c(200,117)};
+        Coordinate[] innerRd1  = {c(10,25), c(76,25)};
+        Coordinate[] innerRd2  = {c(110,25), c(142,25)};
+        Coordinate[] innerRd3  = {c(160,120), c(160,175)};
+
+        List<Road> roads = List.of(
+            new Road("主干道东西线", "31010", "硬化路面", AciColor.WHITE, mainRoadEW),
+            new Road("主干道南北线", "31010", "硬化路面", AciColor.WHITE, mainRoadNS),
+            new Road("次干道A",     "31010", "硬化路面", AciColor.WHITE, secondaryA),
+            new Road("次干道B",     "31010", "硬化路面", AciColor.WHITE, secondaryB),
+            new Road("小巷一",      "31020", "未硬化路面", AciColor.YELLOW, alleyA),
+            new Road("小巷二",      "31020", "未硬化路面", AciColor.YELLOW, alleyB),
+            new Road("人行道北侧",  "31010", "硬化路面", AciColor.WHITE, sidewalkN),
+            new Road("人行道南侧",  "31010", "硬化路面", AciColor.WHITE, sidewalkS),
+            new Road("内部道路一",  "31020", "未硬化路面", AciColor.YELLOW, innerRd1),
+            new Road("内部道路二",  "31020", "未硬化路面", AciColor.YELLOW, innerRd2),
+            new Road("区间路",      "31010", "硬化路面", AciColor.WHITE, innerRd3)
+        );
+
+        List<CADEntity> out = new ArrayList<>();
+        for (Road r : roads) {
+            out.add(CADEntity.builder(CADEntity.Types.LWPOLYLINE)
+                    .layer("道路")
+                    .geometry(GF.createLineString(r.pts()))
+                    .property(EntityProperty.COLOR_ACI, r.aci())
+                    .property(EntityProperty.TEXT, r.name())
+                    .property(EntityProperty.FEATURE_CODE, r.code())
+                    .property(EntityProperty.FEATURE_TYPE, r.type())
+                    .build());
+        }
+        return out;
+    }
+
+    // ── 建筑面实体构建 ──────────────────────────────────────────────────────
+
+    private List<CADEntity> buildBuildingPolygonEntities() {
+        List<CADEntity> out = new ArrayList<>();
+
+        // 建筑 A：标准矩形
+        out.add(buildingPolygon("A幢", "41000", "普通房屋",
+                GF.createPolygon(closedRingCoords(c(10,155), c(30,155), c(30,170), c(10,170)))));
+
+        // 建筑 B：较大矩形
+        out.add(buildingPolygon("B幢", "41000", "普通房屋",
+                GF.createPolygon(closedRingCoords(c(40,140), c(75,140), c(75,160), c(40,160)))));
+
+        // 建筑 C：L 形（六顶点多边形）
+        out.add(buildingPolygon("C幢", "41000", "普通房屋",
+                GF.createPolygon(closedRingCoords(
+                    c(110,150), c(150,150), c(150,165),
+                    c(135,165), c(135,175), c(110,175)))));
+
+        // 建筑 D：带内院（Polygon with hole）
+        LinearRing outer = GF.createLinearRing(closedRingCoords(
+                c(160,140), c(195,140), c(195,175), c(160,175)));
+        LinearRing hole  = GF.createLinearRing(closedRingCoords(
+                c(168,148), c(187,148), c(187,167), c(168,167)));
+        out.add(buildingPolygon("D幢（带内院）", "41000", "普通房屋",
+                GF.createPolygon(outer, new LinearRing[]{hole})));
+
+        // 建筑群 E1~E3：三个相邻小型建筑
+        for (int i = 0; i < 3; i++) {
+            double ox = 10 + i * 22.0;
+            out.add(buildingPolygon("E" + (i+1) + "幢", "41010", "简单房屋",
+                    GF.createPolygon(closedRingCoords(
+                        c(ox,10), c(ox+18,10), c(ox+18,25), c(ox,25)))));
+        }
+
+        // 建筑 F：斜角切角（六边形）
+        out.add(buildingPolygon("F幢", "41080", "在建房屋",
+                GF.createPolygon(closedRingCoords(
+                    c(110,30), c(130,28), c(142,35),
+                    c(142,52), c(130,58), c(110,55)))));
+
+        // 池塘（面状水体，非矩形）
+        out.add(CADEntity.builder(CADEntity.Types.HATCH)
+                .layer("水系")
+                .geometry(GF.createPolygon(closedRingCoords(
+                    c(155,30), c(170,25), c(182,32),
+                    c(185,45), c(175,55), c(160,52), c(150,42))))
+                .property(EntityProperty.COLOR_ACI, AciColor.BLUE)
+                .property(EntityProperty.TEXT, "景观池塘")
+                .property(EntityProperty.FEATURE_CODE, "61010")
+                .property(EntityProperty.FEATURE_TYPE, "池塘")
+                .build());
+
+        // 公园绿地（面状植被）
+        out.add(CADEntity.builder(CADEntity.Types.HATCH)
+                .layer("植被")
+                .geometry(GF.createPolygon(closedRingCoords(
+                    c(5,130), c(35,130), c(35,155), c(5,155))))
+                .property(EntityProperty.COLOR_ACI, AciColor.GREEN)
+                .property(EntityProperty.TEXT, "公园绿地")
+                .property(EntityProperty.FEATURE_CODE, "71010")
+                .property(EntityProperty.FEATURE_TYPE, "公共绿地")
+                .build());
+
+        return out;
+    }
+
+    private CADEntity buildingPolygon(String name, String code, String type, Polygon poly) {
+        return CADEntity.builder(CADEntity.Types.HATCH)
+                .layer("建筑")
+                .geometry(poly)
+                .property(EntityProperty.COLOR_ACI, AciColor.GREEN)
+                .property(EntityProperty.TEXT, name)
+                .property(EntityProperty.FEATURE_CODE, code)
+                .property(EntityProperty.FEATURE_TYPE, type)
+                .build();
+    }
+
+    /** 生成闭合环坐标数组（首尾相同）。 */
+    private Coordinate[] closedRingCoords(Coordinate... coords) {
+        Coordinate[] ring = new Coordinate[coords.length + 1];
+        System.arraycopy(coords, 0, ring, 0, coords.length);
+        ring[coords.length] = new Coordinate(coords[0]);
+        return ring;
+    }
+
+    /** 读取 DBF 记录数（bytes 4-7, little-endian）。 */
+    private int readDbfCount(Path dbf) throws IOException {
+        byte[] b = Files.readAllBytes(dbf);
+        return java.nio.ByteBuffer.wrap(b, 4, 4)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
     }
 
     // =========================================================================
