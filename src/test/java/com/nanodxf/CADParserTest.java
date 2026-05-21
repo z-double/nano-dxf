@@ -20,11 +20,18 @@ import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
 
+import com.nanodxf.output.ShapefileWriteConfig;
+import com.nanodxf.output.ShapefileWriter;
+
 import java.io.IOException;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
@@ -1200,6 +1207,315 @@ class CADParserTest {
             assertThat(lines).hasSize(2);
         } finally {
             java.nio.file.Files.deleteIfExists(tmpFile);
+        }
+    }
+
+    // =========================================================================
+    // v1.3.0 ShapefileWriter
+    // =========================================================================
+
+    /** 辅助：读取 SHP 文件头中的 shape type（bytes 32-35, little-endian）。 */
+    private static int readShpShapeType(Path shp) throws IOException {
+        byte[] header = Files.readAllBytes(shp);
+        return ByteBuffer.wrap(header, 32, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
+    }
+
+    /** 辅助：读取 SHP 文件头中的 magic number（bytes 0-3, big-endian，应为 9994）。 */
+    private static int readShpMagic(Path shp) throws IOException {
+        byte[] header = Files.readAllBytes(shp);
+        return ByteBuffer.wrap(header, 0, 4).order(ByteOrder.BIG_ENDIAN).getInt();
+    }
+
+    /** 辅助：读取 DBF 中的记录数（bytes 4-7, little-endian）。 */
+    private static int readDbfRecordCount(Path dbf) throws IOException {
+        byte[] header = Files.readAllBytes(dbf);
+        return ByteBuffer.wrap(header, 4, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
+    }
+
+    /** 辅助：读取 SHX 中的记录条数（(fileLen - 50 words) / 4 words per record）。 */
+    private static int readShxRecordCount(Path shx) throws IOException {
+        long len = Files.size(shx);
+        // SHX: 100-byte header (50 words) + 8 bytes per record (4 words)
+        return (int) ((len - 100) / 8);
+    }
+
+    @Test
+    void shapefileWriter_point_shouldCreateAllFiles() throws Exception {
+        Path tmp = Files.createTempDirectory("shp_test_");
+        try {
+            Path shp = tmp.resolve("out.shp");
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.POINT)
+                    .layer("高程点").geometry(GF.createPoint(new Coordinate(100, 200, 88.5)))
+                    .property(EntityProperty.COLOR_ACI, 1)
+                    .build());
+
+            new ShapefileWriter().write(entities, shp);
+
+            // 4 个文件都应生成
+            assertThat(tmp.resolve("out.shp")).exists();
+            assertThat(tmp.resolve("out.shx")).exists();
+            assertThat(tmp.resolve("out.dbf")).exists();
+            // 默认无 CRS，不生成 prj
+            assertThat(tmp.resolve("out.prj")).doesNotExist();
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_point_shpHeaderShouldHaveMagic9994AndShapeType1() throws Exception {
+        Path tmp = Files.createTempDirectory("shp_test_");
+        try {
+            Path shp = tmp.resolve("pt.shp");
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.POINT)
+                    .layer("0").geometry(GF.createPoint(new Coordinate(10, 20))).build());
+
+            new ShapefileWriter().write(entities, shp);
+
+            assertThat(readShpMagic(shp)).isEqualTo(9994);         // Shapefile magic
+            assertThat(readShpShapeType(shp)).isEqualTo(1);        // POINT
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_polyline_shouldWriteShapeType3() throws Exception {
+        Path tmp = Files.createTempDirectory("shp_test_");
+        try {
+            Path shp = tmp.resolve("line.shp");
+            LineString ls = GF.createLineString(new Coordinate[]{
+                new Coordinate(0, 0), new Coordinate(10, 10), new Coordinate(20, 5)});
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.LWPOLYLINE).layer("道路").geometry(ls).build());
+
+            new ShapefileWriter().write(entities, shp);
+
+            assertThat(readShpShapeType(shp)).isEqualTo(3);   // POLYLINE
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_polygon_shouldWriteShapeType5() throws Exception {
+        Path tmp = Files.createTempDirectory("shp_test_");
+        try {
+            Path shp = tmp.resolve("poly.shp");
+            Coordinate[] ring = {
+                new Coordinate(0, 0), new Coordinate(10, 0),
+                new Coordinate(10, 10), new Coordinate(0, 10), new Coordinate(0, 0)};
+            Polygon poly = GF.createPolygon(ring);
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.LWPOLYLINE).layer("建筑").geometry(poly).build());
+
+            new ShapefileWriter().write(entities, shp);
+
+            assertThat(readShpShapeType(shp)).isEqualTo(5);   // POLYGON
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_dbf_recordCountShouldMatchEntityCount() throws Exception {
+        Path tmp = Files.createTempDirectory("shp_test_");
+        try {
+            Path shp = tmp.resolve("multi.shp");
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.POINT).layer("A")
+                    .geometry(GF.createPoint(new Coordinate(1, 1))).build(),
+                CADEntity.builder(CADEntity.Types.POINT).layer("B")
+                    .geometry(GF.createPoint(new Coordinate(2, 2))).build(),
+                CADEntity.builder(CADEntity.Types.POINT).layer("C")
+                    .geometry(GF.createPoint(new Coordinate(3, 3))).build());
+
+            new ShapefileWriter().write(entities, shp);
+
+            assertThat(readDbfRecordCount(tmp.resolve("multi.dbf"))).isEqualTo(3);
+            assertThat(readShxRecordCount(tmp.resolve("multi.shx"))).isEqualTo(3);
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_dbf_shouldContainLayerAndTypeFields() throws Exception {
+        Path tmp = Files.createTempDirectory("shp_test_");
+        try {
+            Path shp = tmp.resolve("attrs.shp");
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.POINT)
+                    .layer("高程点")
+                    .geometry(GF.createPoint(new Coordinate(100, 200)))
+                    .property(EntityProperty.ELEVATION, 88.5)
+                    .build());
+
+            new ShapefileWriter(ShapefileWriteConfig.builder().encoding("UTF-8").build())
+                .write(entities, shp);
+
+            // 读取 DBF 内容（UTF-8 编码），应包含图层名和实体类型
+            String dbfContent = Files.readString(tmp.resolve("attrs.dbf"), Charset.forName("UTF-8"));
+            assertThat(dbfContent).contains("高程点");
+            assertThat(dbfContent).contains("POINT");
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_withCrs_shouldCreatePrjFile() throws Exception {
+        Path tmp = Files.createTempDirectory("shp_test_");
+        try {
+            Path shp = tmp.resolve("crs.shp");
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.POINT)
+                    .layer("0").geometry(GF.createPoint(new Coordinate(1, 1))).build());
+
+            new ShapefileWriter(ShapefileWriteConfig.builder().crs("EPSG:4545").build())
+                .write(entities, shp);
+
+            Path prj = tmp.resolve("crs.prj");
+            assertThat(prj).exists();
+            assertThat(Files.readString(prj)).contains("EPSG:4545");
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_nullGeometry_shouldStillWriteDbfRecord() throws Exception {
+        // geometry 为 null 的实体写出 Null Shape，但 DBF 记录应保留
+        Path tmp = Files.createTempDirectory("shp_test_");
+        try {
+            Path shp = tmp.resolve("null.shp");
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.TEXT)
+                    .layer("注记").geometry(null)
+                    .property(EntityProperty.TEXT, "测试").build(),
+                CADEntity.builder(CADEntity.Types.POINT)
+                    .layer("高程").geometry(GF.createPoint(new Coordinate(5, 5))).build());
+
+            new ShapefileWriter().write(entities, shp);
+
+            // DBF 记录数包含 null geometry 的实体
+            assertThat(readDbfRecordCount(tmp.resolve("null.dbf"))).isEqualTo(2);
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_mixedGeometry_shouldSelectDominantType() throws Exception {
+        // 2 个 Polygon + 1 个 LineString → 主体为 Polygon → shape type 5
+        Path tmp = Files.createTempDirectory("shp_test_");
+        try {
+            Path shp = tmp.resolve("mixed.shp");
+            Coordinate[] ring = {
+                new Coordinate(0,0), new Coordinate(10,0),
+                new Coordinate(10,10), new Coordinate(0,10), new Coordinate(0,0)};
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.HATCH).layer("A")
+                    .geometry(GF.createPolygon(ring)).build(),
+                CADEntity.builder(CADEntity.Types.HATCH).layer("B")
+                    .geometry(GF.createPolygon(ring)).build(),
+                CADEntity.builder(CADEntity.Types.LWPOLYLINE).layer("C")
+                    .geometry(GF.createLineString(new Coordinate[]{
+                        new Coordinate(0,0), new Coordinate(5,5)})).build());
+
+            new ShapefileWriter().write(entities, shp);
+
+            assertThat(readShpShapeType(shp)).isEqualTo(5); // Polygon 多数
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_polygon_withHole_shouldBeWritten() throws Exception {
+        // 含洞多边形写入 Shapefile，记录数和文件均应正常
+        Path tmp = Files.createTempDirectory("shp_test_");
+        try {
+            Path shp = tmp.resolve("hole.shp");
+            Coordinate[] outer = {
+                new Coordinate(0,0), new Coordinate(20,0),
+                new Coordinate(20,20), new Coordinate(0,20), new Coordinate(0,0)};
+            Coordinate[] hole = {
+                new Coordinate(5,5), new Coordinate(15,5),
+                new Coordinate(15,15), new Coordinate(5,15), new Coordinate(5,5)};
+            Polygon poly = GF.createPolygon(
+                GF.createLinearRing(outer), new LinearRing[]{GF.createLinearRing(hole)});
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.HATCH).layer("填充").geometry(poly).build());
+
+            new ShapefileWriter().write(entities, shp);
+
+            assertThat(readShpShapeType(shp)).isEqualTo(5);
+            assertThat(readDbfRecordCount(tmp.resolve("hole.dbf"))).isEqualTo(1);
+            // SHP 文件应大于 100 字节（header）+ 8（record header）
+            assertThat(Files.size(shp)).isGreaterThan(200L);
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_emptyEntities_shouldWriteValidEmptyFiles() throws Exception {
+        Path tmp = Files.createTempDirectory("shp_test_");
+        try {
+            Path shp = tmp.resolve("empty.shp");
+            new ShapefileWriter().write(List.of(), shp);
+
+            // 文件存在且可读
+            assertThat(shp).exists();
+            assertThat(readDbfRecordCount(tmp.resolve("empty.dbf"))).isEqualTo(0);
+            assertThat(readShxRecordCount(tmp.resolve("empty.shx"))).isEqualTo(0);
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_shxOffsetConsistency_shouldMatchShpRecords() throws Exception {
+        // SHX 中的偏移量应与 SHP 中实际记录位置一致
+        Path tmp = Files.createTempDirectory("shp_test_");
+        try {
+            Path shp = tmp.resolve("idx.shp");
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.POINT).layer("A")
+                    .geometry(GF.createPoint(new Coordinate(1, 2))).build(),
+                CADEntity.builder(CADEntity.Types.POINT).layer("B")
+                    .geometry(GF.createPoint(new Coordinate(3, 4))).build());
+
+            new ShapefileWriter().write(entities, shp);
+
+            byte[] shxBytes = Files.readAllBytes(tmp.resolve("idx.shx"));
+            byte[] shpBytes = Files.readAllBytes(shp);
+
+            // 第一条记录偏移 = 50 words = 100 bytes
+            int rec0OffsetWords = ByteBuffer.wrap(shxBytes, 100, 4).order(ByteOrder.BIG_ENDIAN).getInt();
+            assertThat(rec0OffsetWords).isEqualTo(50);
+
+            // 第一条记录的 SHP 记录头：record number = 1
+            int recNum0 = ByteBuffer.wrap(shpBytes, 100, 4).order(ByteOrder.BIG_ENDIAN).getInt();
+            assertThat(recNum0).isEqualTo(1);
+
+            // 第二条记录偏移 = 50 + (4 + 10) words = 50 + 14 = 64 words（Point content = 10 words）
+            int rec1OffsetWords = ByteBuffer.wrap(shxBytes, 108, 4).order(ByteOrder.BIG_ENDIAN).getInt();
+            assertThat(rec1OffsetWords).isEqualTo(64);
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    /** 递归删除临时目录（测试清理）。 */
+    private static void deleteDir(Path dir) throws IOException {
+        if (!Files.exists(dir)) return;
+        try (var walk = Files.walk(dir)) {
+            walk.sorted(java.util.Comparator.reverseOrder())
+                .forEach(p -> { try { Files.delete(p); } catch (IOException ignored) {} });
         }
     }
 
