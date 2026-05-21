@@ -27,7 +27,7 @@ import org.locationtech.jts.geom.Point;
  * </ul>
  *
  * <p>格式控制码清洗由 {@link MTextCleaner} 负责：
- * 嵌套花括号格式块 {@code {\fArial|b0;text}} → "text"，
+ * 嵌套花括号格式块 {@code &#123;\fArial|b0;text&#125;} → "text"，
  * 段落换行 {@code \P} → {@code \n}，特殊符号 {@code %%d} → °，等。
  *
  * <p>注意：code 3 续行必须在 code 1 之前拼接，然后统一传给清洗器；

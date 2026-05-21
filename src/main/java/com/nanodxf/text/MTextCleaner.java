@@ -9,7 +9,7 @@ package com.nanodxf.text;
  * <p>处理顺序：
  * <ol>
  *   <li>{@code \U+XXXX} → Unicode 字符</li>
- *   <li>花括号格式块 {@code {\cmd;content}} → 保留 content，剥离 cmd</li>
+ *   <li>花括号格式块（{@code &#123;\cmd;content&#125;}）→ 保留 content，剥离 cmd</li>
  *   <li>换行控制码：{@code \P} / {@code \p} → {@code \n}</li>
  *   <li>不换行空格：{@code \~} → 空格</li>
  *   <li>特殊符号替换：{@code %%d} → °，{@code %%p} → ±，{@code %%c} → ⌀</li>
@@ -18,8 +18,8 @@ package com.nanodxf.text;
  *
  * <p>花括号处理算法基于栈：
  * <ul>
- *   <li>{@code {\...;content}} → 遇到 {@code {\} 开始，跳过直到 {@code ;}，之后输出内容</li>
- *   <li>{@code {content}} → 无格式命令，内容直接输出（删除括号本身）</li>
+ *   <li>{@code &#123;\...;content&#125;} → 遇到 {@code &#123;\} 开始，跳过直到 {@code ;}，之后输出内容</li>
+ *   <li>{@code &#123;content&#125;} → 无格式命令，内容直接输出（删除括号本身）</li>
  *   <li>嵌套花括号递归处理，不依赖正则（正则只能处理单层嵌套）</li>
  * </ul>
  */
@@ -85,9 +85,9 @@ public final class MTextCleaner {
      *
      * <p>规则：
      * <ul>
-     *   <li>{@code {\fArial|b0;text}} → "text"（格式命令以 \ 开头）</li>
-     *   <li>{@code {plain text}} → "plain text"（无格式命令）</li>
-     *   <li>嵌套 {@code {\f...;{\\H2;inner}}} → "inner"</li>
+     *   <li>{@code &#123;\fArial|b0;text&#125;} → "text"（格式命令以 \ 开头）</li>
+     *   <li>{@code &#123;plain text&#125;} → "plain text"（无格式命令）</li>
+     *   <li>嵌套 {@code &#123;\f...;&#123;\\H2;inner&#125;&#125;} → "inner"</li>
      * </ul>
      */
     static String stripBraces(String s) {
