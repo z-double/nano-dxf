@@ -5,6 +5,45 @@
 
 ---
 
+## [1.4.0] - 2026-05-22
+
+### 新增
+
+**3D Shapefile 输出（PointZ / PolylineZ / PolygonZ）**
+- `ShapefileWriter` 自动检测实体几何中的 Z 值：任意坐标 Z 非 NaN 时，输出 Shape Type 11（PointZ）/ 13（PolylineZ）/ 15（PolygonZ），完整保留高程数据；无 Z 时退回 2D。
+- 新增 `ShapefileWriteConfig.ShapeDimension` 枚举（`AUTO` / `XY` / `XYZ`），默认 `AUTO`。可通过 `.dimension(ShapeDimension.XY)` 强制 2D 输出，`.dimension(ShapeDimension.XYZ)` 强制 3D。
+- SHP 文件头 Z range（bytes 68–83）和 PolylineZ/PolygonZ 记录中的 Z range 字段均正确写出。
+
+**Shapefile PRJ 内置 WKT 大幅扩充**
+- 新增 CGCS2000 3° 高斯克吕格投影带（EPSG:4534–4554，CM 75°–135°，覆盖全国 21 个分带），写出完整 `PROJCS[...]` WKT，QGIS / ArcGIS 可直接识别。
+- 新增 WGS84 / UTM 区带（EPSG:32644–32654，zone 44N–54N，覆盖中国境内常用 UTM 分带）。
+- 合计内置 WKT：35 个 EPSG 代号（原 2 个）。
+
+**MULTILEADER 解析**
+- 新增 `MultiLeaderHandler`，解析多重引线顶点序列为 JTS `LineString`。
+- 支持 code 304（MText 内容，含格式码清洗）和 code 1（普通文字）提取，存入 `text` 属性。
+- `EntityDispatcher` 中 MULTILEADER 由 `SKIP` 升级为真实解析。
+
+**SPI 自定义实体处理器**
+- 新增 `EntityHandlerProvider` 公开接口，支持通过 Java `ServiceLoader` 机制注入自定义 handler。
+- 第三方 JAR 在 `META-INF/services/com.nanodxf.entity.EntityHandlerProvider` 中声明实现类即可在解析器启动时自动注册，同名类型将覆盖内置实现。
+
+### 修复
+
+- **流式 API `IOException` 被静默吞掉**：`EntitiesParser.spliterator()` 捕获到 `IOException` 时，原来返回 `null`（视为正常结束），现改为包装为 `UncheckedIOException` 抛出，调用方可感知文件读取错误。
+
+### 测试（新增 7 个）
+
+- `shapefileWriter_3d_pointZ_shouldWriteShapeType11`
+- `shapefileWriter_3d_polylineZ_shouldWriteShapeType13`
+- `shapefileWriter_3d_auto_fallsBackTo2d_whenNoZ`
+- `shapefileWriter_3d_forceDimension_xy_ignoresZ`
+- `shapefileWriter_prj_knownEpsg_shouldWriteWkt`
+- `multiLeaderHandler_shouldProduceLineStringWithText`
+- `entityDispatcher_spi_shouldLoadFromServiceLoader`
+
+---
+
 ## [1.3.1] - 2026-05-22
 
 ### 修复

@@ -16,6 +16,7 @@ import com.nanodxf.xdata.XDataEntry;
 import com.nanodxf.xdata.XDataParser;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.Spliterator;
 import java.util.Spliterators;
@@ -140,7 +141,7 @@ public class EntitiesParser {
                     }
                     return null;
                 } catch (IOException e) {
-                    return null;
+                    throw new UncheckedIOException(e);
                 }
             }
         };

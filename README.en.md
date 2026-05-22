@@ -8,13 +8,13 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 
 ## Features
 
-- **All major entity types**: LINE / ARC / CIRCLE / ELLIPSE / POINT / TEXT / MTEXT / LWPOLYLINE / POLYLINE / SPLINE / HATCH / INSERT / 3DFACE / SOLID / DIMENSION / LEADER
+- **All major entity types**: LINE / ARC / CIRCLE / ELLIPSE / POINT / TEXT / MTEXT / LWPOLYLINE / POLYLINE / SPLINE / HATCH / INSERT / 3DFACE / SOLID / DIMENSION / LEADER / MULTILEADER
 - **Recursive INSERT expansion**: affine transform (scale → rotate → translate), path-set cycle detection
 - **Chinese surveying software support**: CASS / EPS / MapMatrix / MapGIS / SuperMap XDATA feature code extraction, ~80 built-in GB/T 20257 mappings
 - **BYLAYER color inheritance**: ACI 256-color table → layer color → entity color full chain
 - **Auto encoding detection**: UTF-8 BOM → juniversalchardet → version inference → GBK fallback
 - **Fault-tolerant parsing**: truncated files, corrupted entities, unknown entity types never abort parsing; errors collected with severity levels (FATAL / WARN / INFO)
-- **Multiple output formats**: GeoJSON (configurable precision), Shapefile (SHP/SHX/DBF/PRJ, pure Java, no extra dependencies)
+- **Multiple output formats**: GeoJSON (configurable precision), Shapefile (SHP/SHX/DBF/PRJ, pure Java; auto 2D/3D with PointZ/PolylineZ/PolygonZ support)
 - **DXF write**: 15 entity types + block definitions, R12 / R2007 dual-path, verified with GstarCAD / AutoCAD
 - **Streaming parse API**: `parseStream(Path)` two-phase lazy stream, low memory for large files
 
@@ -28,7 +28,7 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.3.1</version>
+    <version>1.4.0</version>
 </dependency>
 ```
 
@@ -92,9 +92,10 @@ import com.nanodxf.output.ShapefileWriter;
 import com.nanodxf.output.ShapefileWriteConfig;
 
 ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
-    .crs("EPSG:4490")           // PRJ: built-in WKT for EPSG:4326/4490; comment fallback for others
+    .crs("EPSG:4545")           // PRJ WKT: v1.4.0 built-in for EPSG:4326/4490/4534-4554/32644-32654
     .encoding("GBK")            // DBF attribute file encoding
-    .coordinateDecimalPlaces(4) // ELEVATION field decimal places (affects DBF field width)
+    .coordinateDecimalPlaces(4) // ELEVATION field decimal places
+    // .dimension(ShapefileWriteConfig.ShapeDimension.AUTO)  // default: auto 3D when Z exists
     .build();
 
 // Output: output.shp + output.shx + output.dbf + output.prj

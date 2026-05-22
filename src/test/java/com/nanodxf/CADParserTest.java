@@ -1563,6 +1563,144 @@ class CADParserTest {
         }
     }
 
+    // =========================================================================
+    // v1.4.0 测试
+    // =========================================================================
+
+    @Test
+    void shapefileWriter_3d_pointZ_shouldWriteShapeType11() throws Exception {
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
+        try {
+            Path shp = tmp.resolve("pts3d.shp");
+            // 含 Z 坐标的 Point
+            Coordinate c = new Coordinate(100.0, 200.0, 55.5);
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.POINT).layer("高程点")
+                    .geometry(GF.createPoint(c)).build());
+
+            new ShapefileWriter().write(entities, shp);
+
+            assertThat(readShpShapeType(shp)).isEqualTo(11);   // PointZ
+
+            // 验证 Z 值写入 SHP 记录（content 偏移：100字节头 + 8字节记录头 = 108）
+            // PointZ 结构：4(type)+8(X)+8(Y)+8(Z)+8(M)
+            byte[] shpBytes = Files.readAllBytes(shp);
+            double z = ByteBuffer.wrap(shpBytes, 100 + 8 + 4 + 8 + 8, 8)
+                                 .order(ByteOrder.LITTLE_ENDIAN).getDouble();
+            assertThat(z).isCloseTo(55.5, org.assertj.core.data.Offset.offset(1e-9));
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_3d_polylineZ_shouldWriteShapeType13() throws Exception {
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
+        try {
+            Path shp = tmp.resolve("lines3d.shp");
+            LineString ls = GF.createLineString(new Coordinate[]{
+                new Coordinate(0, 0, 10.0),
+                new Coordinate(1, 1, 20.0)});
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.LWPOLYLINE).layer("L")
+                    .geometry(ls).build());
+
+            new ShapefileWriter().write(entities, shp);
+
+            assertThat(readShpShapeType(shp)).isEqualTo(13);   // PolylineZ
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_3d_auto_fallsBackTo2d_whenNoZ() throws Exception {
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
+        try {
+            Path shp = tmp.resolve("pts2d.shp");
+            // 无 Z（NaN）的 Point → 应自动使用 2D
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.POINT).layer("P")
+                    .geometry(GF.createPoint(new Coordinate(1, 2))).build());
+
+            new ShapefileWriter().write(entities, shp);
+
+            assertThat(readShpShapeType(shp)).isEqualTo(1);    // 普通 Point
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_3d_forceDimension_xy_ignoresZ() throws Exception {
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
+        try {
+            Path shp = tmp.resolve("force2d.shp");
+            Coordinate c = new Coordinate(1, 2, 99.0);
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.POINT).layer("P")
+                    .geometry(GF.createPoint(c)).build());
+
+            // 强制 XY，忽略 Z
+            ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
+                    .dimension(ShapefileWriteConfig.ShapeDimension.XY).build();
+            new ShapefileWriter(cfg).write(entities, shp);
+
+            assertThat(readShpShapeType(shp)).isEqualTo(1);    // Point（非 PointZ）
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void shapefileWriter_prj_knownEpsg_shouldWriteWkt() throws Exception {
+        Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_test_");
+        try {
+            Path shp = tmp.resolve("crs.shp");
+            List<CADEntity> entities = List.of(
+                CADEntity.builder(CADEntity.Types.POINT).layer("P")
+                    .geometry(GF.createPoint(new Coordinate(1, 2))).build());
+
+            // EPSG:4545 = CGCS2000 3° GK CM 108E（v1.4.0 新增内置）
+            ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
+                    .crs("EPSG:4545").build();
+            new ShapefileWriter(cfg).write(entities, shp);
+
+            String prj = Files.readString(tmp.resolve("crs.prj"));
+            assertThat(prj).startsWith("PROJCS[");       // 真正的 WKT，不是注释
+            assertThat(prj).contains("Central_Meridian");
+            assertThat(prj).contains("108.0");
+        } finally {
+            deleteDir(tmp);
+        }
+    }
+
+    @Test
+    void multiLeaderHandler_shouldProduceLineStringWithText() throws Exception {
+        // MULTILEADER：2 个引线顶点 + MText 内容
+        String dxf = entities(
+            "  0\nMULTILEADER\n" +
+            "  5\nABC\n" +
+            "  8\n标注层\n" +
+            " 10\n100.0\n 20\n200.0\n 30\n0.0\n" +
+            " 10\n150.0\n 20\n250.0\n 30\n0.0\n" +
+            "304\n{\\fArial;建筑面积}\n"
+        );
+        CADEntity e = single(dxf);
+        assertThat(e.getType()).isEqualTo("MULTILEADER");
+        assertThat(e.geometry()).isInstanceOf(org.locationtech.jts.geom.LineString.class);
+        assertThat(e.geometry().getNumPoints()).isEqualTo(2);
+        assertThat(e.getProperties().get("text")).isEqualTo("建筑面积");
+    }
+
+    @Test
+    void entityDispatcher_spi_shouldLoadFromServiceLoader() {
+        // 无外部 SPI 提供者时，内置 MULTILEADER 应正常注册
+        com.nanodxf.entity.EntityDispatcher dispatcher = new com.nanodxf.entity.EntityDispatcher();
+        assertThat(dispatcher.isKnown("MULTILEADER")).isTrue();
+        assertThat(dispatcher.isKnown("VIEWPORT")).isTrue();
+    }
+
     /** 递归删除临时目录（测试清理）。 */
     private static void deleteDir(Path dir) throws IOException {
         if (!Files.exists(dir)) return;

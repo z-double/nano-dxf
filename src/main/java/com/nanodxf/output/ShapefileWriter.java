@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.Locale;
+import java.util.Arrays;
 
 /**
  * 将 {@link CADEntity} 列表序列化为 Shapefile 格式（纯 Java 实现，无额外依赖）。
@@ -56,28 +57,75 @@ import java.util.Locale;
  */
 public class ShapefileWriter {
 
-    // Shape types
-    private static final int SHP_NULL    = 0;
-    private static final int SHP_POINT   = 1;
+    // Shape types — 2D
+    private static final int SHP_NULL     = 0;
+    private static final int SHP_POINT    = 1;
     private static final int SHP_POLYLINE = 3;
     private static final int SHP_POLYGON  = 5;
+    // Shape types — 3D (Z)
+    private static final int SHP_POINTZ    = 11;
+    private static final int SHP_POLYLINEZ = 13;
+    private static final int SHP_POLYGONZ  = 15;
 
-    // 内置 CRS WKT 表（键为大写 EPSG 代号）
+    // 内置 CRS WKT 表（键为大写 EPSG 代号，ESRI WKT 格式）
     private static final Map<String, String> KNOWN_WKT;
     static {
         Map<String, String> m = new LinkedHashMap<>();
-        // WGS 84 地理坐标系
+
+        // ---------- 地理坐标系 ----------
+
+        // WGS 84（EPSG:4326）
         m.put("EPSG:4326",
             "GEOGCS[\"GCS_WGS_1984\"," +
             "DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]]," +
             "PRIMEM[\"Greenwich\",0.0]," +
             "UNIT[\"Degree\",0.0174532925199433]]");
-        // 2000 国家大地坐标系（CGCS2000）地理坐标系
-        m.put("EPSG:4490",
+
+        // 2000 国家大地坐标系（CGCS2000 地理，EPSG:4490）
+        final String CGCS2000_GEO =
             "GEOGCS[\"GCS_China_Geodetic_Coordinate_System_2000\"," +
             "DATUM[\"D_China_2000\",SPHEROID[\"CGCS2000\",6378137.0,298.257222101]]," +
             "PRIMEM[\"Greenwich\",0.0]," +
-            "UNIT[\"Degree\",0.0174532925199433]]");
+            "UNIT[\"Degree\",0.0174532925199433]]";
+        m.put("EPSG:4490", CGCS2000_GEO);
+
+        // ---------- CGCS2000 3° 高斯克吕格（带号 + CM 命名，EPSG:4534–4554）----------
+        // EPSG:4534 = CM 75°，每增加 1 → CM + 3°
+        for (int epsg = 4534; epsg <= 4554; epsg++) {
+            int cm = 75 + 3 * (epsg - 4534);
+            m.put("EPSG:" + epsg,
+                "PROJCS[\"CGCS2000 / 3-degree Gauss-Kruger CM " + cm + "E\"," +
+                CGCS2000_GEO + "," +
+                "PROJECTION[\"Gauss_Kruger\"]," +
+                "PARAMETER[\"False_Easting\",500000.0]," +
+                "PARAMETER[\"False_Northing\",0.0]," +
+                "PARAMETER[\"Central_Meridian\"," + cm + ".0]," +
+                "PARAMETER[\"Scale_Factor\",1.0]," +
+                "PARAMETER[\"Latitude_Of_Origin\",0.0]," +
+                "UNIT[\"Meter\",1.0]]");
+        }
+
+        // ---------- WGS84 / UTM 常用区带（EPSG:32644–32654，覆盖中国）----------
+        // EPSG:3264x = WGS84/UTM zone xN，CM = x×6 - 183
+        final String WGS84_GEO =
+            "GEOGCS[\"GCS_WGS_1984\"," +
+            "DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]]," +
+            "PRIMEM[\"Greenwich\",0.0]," +
+            "UNIT[\"Degree\",0.0174532925199433]]";
+        for (int zone = 44; zone <= 54; zone++) {
+            int cm = zone * 6 - 183;
+            m.put("EPSG:326" + zone,
+                "PROJCS[\"WGS_1984_UTM_Zone_" + zone + "N\"," +
+                WGS84_GEO + "," +
+                "PROJECTION[\"Transverse_Mercator\"]," +
+                "PARAMETER[\"False_Easting\",500000.0]," +
+                "PARAMETER[\"False_Northing\",0.0]," +
+                "PARAMETER[\"Central_Meridian\"," + cm + ".0]," +
+                "PARAMETER[\"Scale_Factor\",0.9996]," +
+                "PARAMETER[\"Latitude_Of_Origin\",0.0]," +
+                "UNIT[\"Meter\",1.0]]");
+        }
+
         KNOWN_WKT = Collections.unmodifiableMap(m);
     }
 
@@ -98,7 +146,15 @@ public class ShapefileWriter {
         Objects.requireNonNull(path,     "path must not be null");
 
         Path base = stripExtension(path);
-        int shapeType = detectDominantShapeType(entities);
+
+        // 决定是否使用 Z 变体
+        boolean useZ = switch (config.getDimension()) {
+            case XY   -> false;
+            case XYZ  -> true;
+            case AUTO -> hasZData(entities);
+        };
+
+        int shapeType = detectDominantShapeType(entities, useZ);
 
         // 收集每个记录的 SHP 内容（bytes）
         List<byte[]> shpRecords = new ArrayList<>(entities.size());
@@ -118,7 +174,20 @@ public class ShapefileWriter {
     // Shape type detection
     // -------------------------------------------------------------------------
 
-    private int detectDominantShapeType(List<CADEntity> entities) {
+    /** 检测实体列表中是否存在有效 Z 值（非 NaN）。 */
+    private boolean hasZData(List<CADEntity> entities) {
+        return entities.stream()
+                .filter(e -> e.geometry() != null)
+                .flatMap(e -> Arrays.stream(e.geometry().getCoordinates()))
+                .anyMatch(c -> !Double.isNaN(c.getZ()));
+    }
+
+    /**
+     * 按几何主体类型决定 Shapefile 的 shape type。
+     *
+     * @param useZ true 时返回 Z 变体（11/13/15），false 时返回 2D 变体（1/3/5）
+     */
+    private int detectDominantShapeType(List<CADEntity> entities, boolean useZ) {
         int points = 0, lines = 0, polys = 0;
         for (CADEntity e : entities) {
             Geometry g = e.geometry();
@@ -128,7 +197,6 @@ public class ShapefileWriter {
                      g instanceof LinearRing) lines++;
             else if (g instanceof Polygon || g instanceof MultiPolygon) polys++;
             else if (g instanceof GeometryCollection gc) {
-                // 展开集合，按主体类型计数
                 for (int i = 0; i < gc.getNumGeometries(); i++) {
                     Geometry sub = gc.getGeometryN(i);
                     if (sub instanceof Point) points++;
@@ -137,11 +205,19 @@ public class ShapefileWriter {
                 }
             }
         }
-        // 没有任何有效几何时返回 NULL，避免 0>=0 条件误判为 POLYGON
         if (points == 0 && lines == 0 && polys == 0) return SHP_NULL;
-        if (polys >= lines && polys >= points) return SHP_POLYGON;
-        if (lines >= points) return SHP_POLYLINE;
-        return SHP_POINT;
+        int base;
+        if (polys >= lines && polys >= points) base = SHP_POLYGON;
+        else if (lines >= points)              base = SHP_POLYLINE;
+        else                                   base = SHP_POINT;
+
+        if (!useZ) return base;
+        return switch (base) {
+            case SHP_POINT    -> SHP_POINTZ;
+            case SHP_POLYLINE -> SHP_POLYLINEZ;
+            case SHP_POLYGON  -> SHP_POLYGONZ;
+            default           -> base;
+        };
     }
 
     // -------------------------------------------------------------------------
@@ -151,10 +227,13 @@ public class ShapefileWriter {
     private byte[] buildShpRecord(Geometry geom, int shapeType) {
         if (geom == null) return encodeNull();
         return switch (shapeType) {
-            case SHP_POINT   -> encodePoint(geom);
-            case SHP_POLYLINE -> encodePolyline(geom);
-            case SHP_POLYGON  -> encodePolygon(geom);
-            default           -> encodeNull();
+            case SHP_POINT     -> encodePoint(geom);
+            case SHP_POLYLINE  -> encodePolyline(geom);
+            case SHP_POLYGON   -> encodePolygon(geom);
+            case SHP_POINTZ    -> encodePointZ(geom);
+            case SHP_POLYLINEZ -> encodePolylineZ(geom);
+            case SHP_POLYGONZ  -> encodePolygonZ(geom);
+            default            -> encodeNull();
         };
     }
 
@@ -284,6 +363,102 @@ public class ShapefileWriter {
     }
 
     // -------------------------------------------------------------------------
+    // 3D (Z) record encoders
+    // -------------------------------------------------------------------------
+
+    private byte[] encodePointZ(Geometry geom) {
+        Point p = null;
+        if (geom instanceof Point pt) p = pt;
+        else if (geom instanceof GeometryCollection gc && gc.getNumGeometries() > 0
+                 && gc.getGeometryN(0) instanceof Point pt) p = pt;
+        if (p == null) return encodeNull();
+
+        double z = p.getCoordinate().getZ();
+        if (Double.isNaN(z)) z = 0.0;
+
+        ByteBuffer b = ByteBuffer.allocate(4 + 16 + 8 + 8).order(ByteOrder.LITTLE_ENDIAN);
+        b.putInt(SHP_POINTZ);
+        b.putDouble(p.getX()); b.putDouble(p.getY());
+        b.putDouble(z);
+        b.putDouble(0.0); // M
+        return b.array();
+    }
+
+    private byte[] encodePolylineZ(Geometry geom) {
+        List<Coordinate[]> parts = new ArrayList<>();
+        collectLineParts(geom, parts);
+        if (parts.isEmpty()) return encodeNull();
+        return encodeMultiPartZ(SHP_POLYLINEZ, parts);
+    }
+
+    private byte[] encodePolygonZ(Geometry geom) {
+        List<Coordinate[]> parts = new ArrayList<>();
+        collectPolygonParts(geom, parts);
+        if (parts.isEmpty()) return encodeNull();
+        return encodeMultiPartZ(SHP_POLYGONZ, parts);
+    }
+
+    /**
+     * 编码 PolylineZ / PolygonZ 记录。格式（小端）：
+     * <pre>
+     * int32 shape type
+     * double[4] XY bounding box
+     * int32 numParts  int32 numPoints
+     * int32[numParts] parts index
+     * double[2*numPoints] XY pairs
+     * double[2] Z range  double[numPoints] Z values
+     * double[2] M range  double[numPoints] M values (all 0)
+     * </pre>
+     */
+    private byte[] encodeMultiPartZ(int shapeType, List<Coordinate[]> parts) {
+        int numParts  = parts.size();
+        int numPoints = parts.stream().mapToInt(c -> c.length).sum();
+
+        int contentBytes = 4 + 32 + 4 + 4               // type + bbox + counts
+                         + 4 * numParts                   // parts index
+                         + 16 * numPoints                 // XY
+                         + 16 + 8 * numPoints             // Z range + Z values
+                         + 16 + 8 * numPoints;            // M range + M values
+        ByteBuffer b = ByteBuffer.allocate(contentBytes).order(ByteOrder.LITTLE_ENDIAN);
+
+        b.putInt(shapeType);
+
+        // XY bounding box
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE;
+        double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        double minZ = Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
+        for (Coordinate[] cs : parts) {
+            for (Coordinate c : cs) {
+                if (c.x < minX) minX = c.x; if (c.x > maxX) maxX = c.x;
+                if (c.y < minY) minY = c.y; if (c.y > maxY) maxY = c.y;
+                double z = Double.isNaN(c.getZ()) ? 0.0 : c.getZ();
+                if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+            }
+        }
+        b.putDouble(minX); b.putDouble(minY); b.putDouble(maxX); b.putDouble(maxY);
+        b.putInt(numParts); b.putInt(numPoints);
+
+        // Parts index
+        int offset = 0;
+        for (Coordinate[] cs : parts) { b.putInt(offset); offset += cs.length; }
+
+        // XY pairs
+        for (Coordinate[] cs : parts)
+            for (Coordinate c : cs) { b.putDouble(c.x); b.putDouble(c.y); }
+
+        // Z range + Z values
+        b.putDouble(minZ); b.putDouble(maxZ);
+        for (Coordinate[] cs : parts)
+            for (Coordinate c : cs) b.putDouble(Double.isNaN(c.getZ()) ? 0.0 : c.getZ());
+
+        // M range + M values (no measures, all zero)
+        b.putDouble(0.0); b.putDouble(0.0);
+        for (int i = 0; i < numPoints; i++) b.putDouble(0.0);
+
+        return b.array();
+    }
+
+    // -------------------------------------------------------------------------
     // SHP file writer
     // -------------------------------------------------------------------------
 
@@ -340,7 +515,35 @@ public class ShapefileWriter {
         if (Double.isInfinite(minX)) { minX = minY = 0; maxX = maxY = 0; }
 
         b.putDouble(minX); b.putDouble(minY); b.putDouble(maxX); b.putDouble(maxY);
-        b.putDouble(0); b.putDouble(0); // Z range
+
+        // Z range：从 Z 型记录中读出实际范围，其他情况写 0
+        double zMin = 0, zMax = 0;
+        if (shapeType == SHP_POINTZ || shapeType == SHP_POLYLINEZ || shapeType == SHP_POLYGONZ) {
+            zMin = Double.MAX_VALUE; zMax = -Double.MAX_VALUE;
+            for (byte[] rec : records) {
+                if (rec.length < 4) continue;
+                ByteBuffer rb = ByteBuffer.wrap(rec).order(ByteOrder.LITTLE_ENDIAN);
+                int st = rb.getInt();
+                if (st == SHP_POINTZ && rec.length >= 36) {
+                    rb.getDouble(); rb.getDouble(); // skip X, Y
+                    double z = rb.getDouble();
+                    if (z < zMin) zMin = z; if (z > zMax) zMax = z;
+                } else if ((st == SHP_POLYLINEZ || st == SHP_POLYGONZ) && rec.length > 36) {
+                    // Z range 在 XY bbox(32) + numParts(4) + numPoints(4) + parts + XY 之后
+                    // 直接用 bbox[2]/[3] 再往后跳：numParts 和 numPoints 偏移量不定，
+                    // 从 Z range 字段读（它存在于 bbox 后面，offset = 4+32+4+4+4*np+16*npt）
+                    // 简化：扫 Z 值段，取 min/max
+                    rb.position(4); // reset after type
+                    rb.getDouble(); rb.getDouble(); rb.getDouble(); rb.getDouble(); // XY bbox
+                    int np = rb.getInt(), npt = rb.getInt();
+                    rb.position(rb.position() + 4 * np + 16 * npt); // skip parts + XY
+                    double zr0 = rb.getDouble(), zr1 = rb.getDouble();
+                    if (zr0 < zMin) zMin = zr0; if (zr1 > zMax) zMax = zr1;
+                }
+            }
+            if (Double.isInfinite(zMin)) { zMin = zMax = 0; }
+        }
+        b.putDouble(zMin); b.putDouble(zMax);
         b.putDouble(0); b.putDouble(0); // M range
         return b.array();
     }

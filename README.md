@@ -8,13 +8,13 @@
 
 ## 特性
 
-- **全主流实体解析**：LINE / ARC / CIRCLE / ELLIPSE / POINT / TEXT / MTEXT / LWPOLYLINE / POLYLINE / SPLINE / HATCH / INSERT / 3DFACE / SOLID / DIMENSION / LEADER
+- **全主流实体解析**：LINE / ARC / CIRCLE / ELLIPSE / POINT / TEXT / MTEXT / LWPOLYLINE / POLYLINE / SPLINE / HATCH / INSERT / 3DFACE / SOLID / DIMENSION / LEADER / MULTILEADER
 - **INSERT 块递归展开**：仿射变换（缩放 → 旋转 → 平移）、路径集合循环引用检测
 - **国内测绘软件适配**：CASS / EPS / MapMatrix / MapGIS / SuperMap XDATA 地物编码提取，内置约 80 条 GB/T 20257 映射
 - **BYLAYER 颜色继承**：ACI 256 色表 → 图层颜色 → 实体颜色完整链路
 - **编码自适应**：UTF-8 BOM → juniversalchardet 检测 → 版本号推断 → GBK 兜底
 - **容错解析**：截断文件、损坏实体、未知实体类型均不中断，错误分级收集（FATAL / WARN / INFO）
-- **多格式输出**：GeoJSON（坐标精度可配）、Shapefile（SHP/SHX/DBF/PRJ，纯 Java 无额外依赖）
+- **多格式输出**：GeoJSON（坐标精度可配）、Shapefile（SHP/SHX/DBF/PRJ，纯 Java 无额外依赖；自动 2D/3D 输出，含 PointZ/PolylineZ/PolygonZ）
 - **DXF 写出**：15 种实体类型 + 块定义，R12 / R2007 双路径，浩辰 CAD / AutoCAD 验证通过
 - **流式解析 API**：`parseStream(Path)` 两阶段惰性流，大文件低内存占用
 
@@ -28,7 +28,7 @@
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.3.1</version>
+    <version>1.4.0</version>
 </dependency>
 ```
 
@@ -175,9 +175,10 @@ import com.nanodxf.output.ShapefileWriter;
 import com.nanodxf.output.ShapefileWriteConfig;
 
 ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
-    .crs("EPSG:4490")           // 写入 .prj（内置 WKT：EPSG:4326 / EPSG:4490；其他代号写注释行）
+    .crs("EPSG:4545")           // 写入 .prj WKT（v1.4.0：内置 EPSG:4326/4490/4534–4554/32644–32654）
     .encoding("GBK")            // DBF 属性文件编码
     .coordinateDecimalPlaces(4) // ELEVATION 字段小数位（影响 DBF 字段宽度）
+    // .dimension(ShapefileWriteConfig.ShapeDimension.AUTO)  // 默认：有 Z 自动写 PointZ/PolylineZ/PolygonZ
     .build();
 
 // 输出：output.shp + output.shx + output.dbf + output.prj

@@ -6,11 +6,18 @@ import com.nanodxf.model.DXFContext;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ServiceLoader;
 
 /**
  * 根据实体类型字符串将 EntityBuffer 分发到对应的 {@link EntityHandler}。
  *
- * <p>内置处理器在构造方法中硬编码注册；外部扩展通过 {@link #register} 注入。
+ * <p>内置处理器在构造方法中硬编码注册；外部扩展可通过两种方式注入：
+ * <ul>
+ *   <li>{@link #register}：编程式注册，直接调用</li>
+ *   <li>{@link EntityHandlerProvider} SPI：在第三方 JAR 的
+ *       {@code META-INF/services/com.nanodxf.entity.EntityHandlerProvider}
+ *       中声明实现类，构造时自动通过 {@link ServiceLoader} 加载</li>
+ * </ul>
  *
  * <p>{@link #dispatch} 返回：
  * <ul>
@@ -24,29 +31,38 @@ public class EntityDispatcher {
 
     public EntityDispatcher() {
         // Phase 1 基础实体
-        register("LINE",        new LineHandler());
-        register("ARC",         new ArcHandler());
-        register("CIRCLE",      new CircleHandler());
-        register("POINT",       new PointHandler());
-        register("TEXT",        new TextHandler());
-        register("LWPOLYLINE",  new LWPolylineHandler());
+        register("LINE",          new LineHandler());
+        register("ARC",           new ArcHandler());
+        register("CIRCLE",        new CircleHandler());
+        register("POINT",         new PointHandler());
+        register("TEXT",          new TextHandler());
+        register("LWPOLYLINE",    new LWPolylineHandler());
 
         // Phase 2 复杂实体
-        register("ELLIPSE",     new EllipseHandler());
-        register("POLYLINE",    new PolylineHandler());
-        register("SPLINE",      new SplineHandler());
-        register("MTEXT",       new MTextHandler());
-        register("INSERT",      new InsertHandler());
-        register("ATTRIB",      new AttribHandler());
-        register("HATCH",       new HatchHandler());
-        register("DIMENSION",   new DimensionHandler());
-        register("3DFACE",      new ThreeDFaceHandler());
-        register("SOLID",       new SolidHandler());
+        register("ELLIPSE",       new EllipseHandler());
+        register("POLYLINE",      new PolylineHandler());
+        register("SPLINE",        new SplineHandler());
+        register("MTEXT",         new MTextHandler());
+        register("INSERT",        new InsertHandler());
+        register("ATTRIB",        new AttribHandler());
+        register("HATCH",         new HatchHandler());
+        register("DIMENSION",     new DimensionHandler());
+        register("3DFACE",        new ThreeDFaceHandler());
+        register("SOLID",         new SolidHandler());
 
-        // LEADER 解析为引线折线；MULTILEADER 结构复杂暂跳过
-        register("LEADER",      new LeaderHandler());
-        register("MULTILEADER", EntityHandler.SKIP);
-        register("VIEWPORT",    EntityHandler.SKIP);
+        // 引线实体
+        register("LEADER",        new LeaderHandler());
+        register("MULTILEADER",   new MultiLeaderHandler());  // v1.4.0 实现
+
+        register("VIEWPORT",      EntityHandler.SKIP);
+
+        // SPI 扩展：第三方 jar 通过 META-INF/services 注册自定义 handler
+        // 若与内置类型同名则覆盖内置实现，允许定制解析逻辑
+        ServiceLoader.load(EntityHandlerProvider.class)
+                .stream()
+                .map(ServiceLoader.Provider::get)
+                .flatMap(p -> p.handlers().entrySet().stream())
+                .forEach(e -> register(e.getKey(), e.getValue()));
     }
 
     /** 注册或覆盖指定实体类型的处理器（不区分大小写，内部转大写）。 */
