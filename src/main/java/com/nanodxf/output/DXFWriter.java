@@ -359,19 +359,34 @@ public class DXFWriter {
         pair(w, 1, text);
     }
 
+    /**
+     * R12（AC1009）不支持 ELLIPSE 实体，离散化为 POLYLINE 折线近似。
+     * 参数方程：P(t) = center + majorAxis·cos(t) + (ratio·perpAxis)·sin(t)，
+     * 其中 perpAxis = rotate90CCW(majorAxis)。
+     */
     private void writeEllipseR12(LineWriter w, Point center, CADEntity e) throws IOException {
-        double mx = dblProp(e, "majorAxisX", 1.0);
-        double my = dblProp(e, "majorAxisY", 0.0);
-        double ratio = dblProp(e, "axisRatio", 1.0);
+        double mx    = dblProp(e, "majorAxisX", 1.0);
+        double my    = dblProp(e, "majorAxisY", 0.0);
+        double ratio = dblProp(e, "axisRatio",  1.0);
         if (Math.sqrt(mx * mx + my * my) < 1e-12 || ratio <= 0) return;
-        pair(w, 0, "ELLIPSE");
-        writeR12Common(w, e);
-        pair(w, 10, fmt(center.getX())); pair(w, 20, fmt(center.getY()));
-        pair(w, 30, fmtZ(center.getCoordinate().getZ()));
-        pair(w, 11, fmt(mx)); pair(w, 21, fmt(my)); pair(w, 31, fmt(0.0));
-        pair(w, 40, fmt(ratio));
-        pair(w, 41, fmt(dblProp(e, "startAngle", 0.0)));
-        pair(w, 42, fmt(dblProp(e, "endAngle", 2 * Math.PI)));
+
+        double startParam = dblProp(e, "startAngle", 0.0);
+        double endParam   = dblProp(e, "endAngle",   2 * Math.PI);
+        double paramSpan  = endParam - startParam;
+        if (paramSpan < 1e-9) paramSpan = 2 * Math.PI;
+        boolean closed = Math.abs(paramSpan - 2 * Math.PI) < 1e-9;
+
+        double cx = center.getX(), cy = center.getY();
+        int steps = 72; // 5° 精度
+        Coordinate[] coords = new Coordinate[steps + 1];
+        for (int i = 0; i <= steps; i++) {
+            double t = startParam + paramSpan * i / steps;
+            coords[i] = new Coordinate(
+                cx + mx * Math.cos(t) - ratio * my * Math.sin(t),
+                cy + my * Math.cos(t) + ratio * mx * Math.sin(t)
+            );
+        }
+        writeLwR12(w, coords, closed, e);
     }
 
     private void writeSolidR12(LineWriter w, Geometry geom, CADEntity e) throws IOException {
@@ -409,20 +424,13 @@ public class DXFWriter {
         pair(w, 70, "0"); // 边可见性：全可见
     }
 
+    /**
+     * R12（AC1009）不支持 SPLINE 实体；使用已离散化的 LineString 降级为 POLYLINE。
+     * R2007 路径（{@link #writeSplineR2000}）仍写出原生 SPLINE 实体。
+     */
     private void writeSplineR12(LineWriter w, LineString ls, CADEntity e) throws IOException {
-        @SuppressWarnings("unchecked")
-        List<double[]> ctrlPts = (List<double[]>) e.getProperties().get("controlPoints");
-        int degree = 3;
-        if (ctrlPts != null && ctrlPts.size() >= degree + 1) {
-            double[] knots = generateClampedKnots(ctrlPts.size(), degree);
-            pair(w, 0, "SPLINE");
-            writeR12Common(w, e);
-            writeSplineBody(w, degree, knots, ctrlPts, false);
-        } else {
-            // 无控制点 → 降级为 LWPOLYLINE
-            Coordinate[] cs = ls.getCoordinates();
-            if (cs.length >= 2) writeLwR12(w, cs, false, e);
-        }
+        Coordinate[] cs = ls.getCoordinates();
+        if (cs.length >= 2) writeLwR12(w, cs, false, e);
     }
 
     /** 写出 SPLINE 实体体（除 code 0 和公共头之外的字段），r2007=true 时插入 AcDbSpline 子类标记。 */
@@ -817,6 +825,9 @@ public class DXFWriter {
                                 String ownerBR, int[] h) throws IOException {
         double radius = dblProp(e, "radius", 0.0);
         if (radius <= 0) return;
+        double sa = dblProp(e, "startAngle", 0.0);
+        double ea = dblProp(e, "endAngle", 360.0);
+        if (Math.abs(ea - sa) < 1e-9) return; // 零长度弧跳过（与 R12 路径一致）
         pair(w, 0, "ARC");
         writeR2000Common(w, e, ownerBR, h);
         pair(w, 100, "AcDbCircle");
@@ -824,8 +835,8 @@ public class DXFWriter {
         pair(w, 30, fmtZ(center.getCoordinate().getZ()));
         pair(w, 40, fmt(radius));
         pair(w, 100, "AcDbArc");
-        pair(w, 50, fmt(dblProp(e, "startAngle", 0.0)));
-        pair(w, 51, fmt(dblProp(e, "endAngle", 360.0)));
+        pair(w, 50, fmt(sa));
+        pair(w, 51, fmt(ea));
     }
 
     private void writeCircleR2000(LineWriter w, Point center, CADEntity e,

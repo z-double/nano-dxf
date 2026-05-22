@@ -28,7 +28,7 @@
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.3.0</version>
+    <version>1.3.1</version>
 </dependency>
 ```
 
@@ -175,9 +175,9 @@ import com.nanodxf.output.ShapefileWriter;
 import com.nanodxf.output.ShapefileWriteConfig;
 
 ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
-    .crs("EPSG:4545")       // 写入 .prj 文件
-    .encoding("GBK")        // DBF 属性文件编码
-    .coordinateDecimalPlaces(4)
+    .crs("EPSG:4490")           // 写入 .prj（内置 WKT：EPSG:4326 / EPSG:4490；其他代号写注释行）
+    .encoding("GBK")            // DBF 属性文件编码
+    .coordinateDecimalPlaces(4) // ELEVATION 字段小数位（影响 DBF 字段宽度）
     .build();
 
 // 输出：output.shp + output.shx + output.dbf + output.prj
@@ -276,10 +276,10 @@ entities.add(CADEntity.builder(CADEntity.Types.SPLINE)
 | `CIRCLE` | `Point`（圆心） | CIRCLE（需 `radius` 属性）|
 | `HATCH` | `Polygon`/`MultiPolygon` | HATCH（SOLID 填充，支持洞）|
 | `INSERT` | `Point`（插入点） | INSERT（需 `blockName` 属性）|
-| `ELLIPSE` | `Point`（圆心） | ELLIPSE（需 `majorAxisX/Y`、`axisRatio` 属性，v1.3.0）|
+| `ELLIPSE` | `Point`（圆心） | ELLIPSE（R2007）/ 72 段 POLYLINE 折线近似（R12，v1.3.1）|
 | `SOLID` | `Polygon` / `LinearRing`（4 顶点） | SOLID（v1.3.0）|
 | `FACE3D` | `LinearRing` / `Polygon`（3~4 顶点） | 3DFACE（v1.3.0）|
-| `SPLINE` | `LineString` + `controlPoints` 属性 | SPLINE；无控制点时降级为 LWPOLYLINE（v1.3.0）|
+| `SPLINE` | `LineString` + `controlPoints` 属性 | SPLINE（R2007）/ POLYLINE 折线（R12，v1.3.1）|
 | 任意 | `GeometryCollection` | 递归展开子几何 |
 
 ### 支持的实体属性（写出）

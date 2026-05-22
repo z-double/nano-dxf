@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.Locale;
 
 /**
  * 将 {@link CADEntity} 列表序列化为 Shapefile 格式（纯 Java 实现，无额外依赖）。
@@ -20,7 +21,7 @@ import java.util.*;
  *   <li>{@code .shp} — 几何数据（点 / 折线 / 多边形）</li>
  *   <li>{@code .shx} — 几何索引</li>
  *   <li>{@code .dbf} — 属性数据（DBF III 格式）</li>
- *   <li>{@code .prj} — 坐标系说明（仅当 config.crs != null 时生成）</li>
+ *   <li>{@code .prj} — 坐标系 WKT（仅当 config.crs != null 时生成）</li>
  * </ul>
  *
  * <p>几何类型映射（按实体几何主体类型决定 Shapefile 类型，混合集合按主体类型处理）：
@@ -29,14 +30,25 @@ import java.util.*;
  *   <li>{@link LineString} / {@link MultiLineString} → Shape Type 3（POLYLINE）</li>
  *   <li>{@link Polygon} / {@link MultiPolygon} → Shape Type 5（POLYGON）</li>
  *   <li>几何为 null 或类型不匹配 → Null Shape（不丢弃记录，DBF 行保留）</li>
+ *   <li>实体列表为空或所有几何为 null → Shape Type 0（NULL），不产生几何记录</li>
  * </ul>
  *
  * <p>DBF 属性字段：LAYER(C64)、ETYPE(C16)、TEXT(C254)、FEAT_CODE(C32)、
- * FEAT_TYPE(C64)、COLOR(N4)、ELEVATION(N10.4)
+ * FEAT_TYPE(C64)、COLOR(N4)、ELEVATION(N{len}.{dp})，其中 len/dp 由
+ * {@link ShapefileWriteConfig#getCoordinateDecimalPlaces()} 决定（默认 N10.4）。
+ *
+ * <p>.prj 坐标系写出规则（优先级从高到低）：
+ * <ol>
+ *   <li>若 {@code config.crs} 以 {@code GEOGCS[}、{@code PROJCS[}、{@code COMPD_CS[} 开头，
+ *       直接写入（用户自行提供 WKT）</li>
+ *   <li>若 {@code config.crs} 为内置 EPSG 代号（如 {@code EPSG:4326}、{@code EPSG:4490}），
+ *       写出完整 WKT</li>
+ *   <li>其余情况写出注释行（{@code # CRS: ...}），标识坐标系但不能被 GIS 工具自动解析</li>
+ * </ol>
  *
  * <pre>{@code
  * ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
- *     .crs("EPSG:4545")
+ *     .crs("EPSG:4490")
  *     .encoding("GBK")
  *     .build();
  * new ShapefileWriter(cfg).write(entities, Paths.get("output.shp"));
@@ -50,16 +62,24 @@ public class ShapefileWriter {
     private static final int SHP_POLYLINE = 3;
     private static final int SHP_POLYGON  = 5;
 
-    // DBF field definitions: [name, type, length, decimal]
-    private static final Object[][] DBF_FIELDS = {
-        {"LAYER",     'C', 64,  0},
-        {"ETYPE",     'C', 16,  0},
-        {"TEXT",      'C', 254, 0},
-        {"FEAT_CODE", 'C', 32,  0},
-        {"FEAT_TYPE", 'C', 64,  0},
-        {"COLOR",     'N', 4,   0},
-        {"ELEVATION", 'N', 10,  4},
-    };
+    // 内置 CRS WKT 表（键为大写 EPSG 代号）
+    private static final Map<String, String> KNOWN_WKT;
+    static {
+        Map<String, String> m = new LinkedHashMap<>();
+        // WGS 84 地理坐标系
+        m.put("EPSG:4326",
+            "GEOGCS[\"GCS_WGS_1984\"," +
+            "DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]]," +
+            "PRIMEM[\"Greenwich\",0.0]," +
+            "UNIT[\"Degree\",0.0174532925199433]]");
+        // 2000 国家大地坐标系（CGCS2000）地理坐标系
+        m.put("EPSG:4490",
+            "GEOGCS[\"GCS_China_Geodetic_Coordinate_System_2000\"," +
+            "DATUM[\"D_China_2000\",SPHEROID[\"CGCS2000\",6378137.0,298.257222101]]," +
+            "PRIMEM[\"Greenwich\",0.0]," +
+            "UNIT[\"Degree\",0.0174532925199433]]");
+        KNOWN_WKT = Collections.unmodifiableMap(m);
+    }
 
     private final ShapefileWriteConfig config;
 
@@ -117,9 +137,11 @@ public class ShapefileWriter {
                 }
             }
         }
+        // 没有任何有效几何时返回 NULL，避免 0>=0 条件误判为 POLYGON
+        if (points == 0 && lines == 0 && polys == 0) return SHP_NULL;
         if (polys >= lines && polys >= points) return SHP_POLYGON;
         if (lines >= points) return SHP_POLYLINE;
-        return points > 0 ? SHP_POINT : SHP_NULL;
+        return SHP_POINT;
     }
 
     // -------------------------------------------------------------------------
@@ -347,7 +369,26 @@ public class ShapefileWriter {
     // DBF file writer
     // -------------------------------------------------------------------------
 
+    /**
+     * 动态计算 DBF 字段定义。ELEVATION 字段的小数位数和字段宽度由
+     * {@link ShapefileWriteConfig#getCoordinateDecimalPlaces()} 决定。
+     */
+    private Object[][] dbfFields() {
+        int dp = config.getCoordinateDecimalPlaces();
+        int elevLen = Math.max(10, 6 + dp); // 符号+5位整数+小数点+dp 位小数，最小 10
+        return new Object[][]{
+            {"LAYER",     'C', 64,      0 },
+            {"ETYPE",     'C', 16,      0 },
+            {"TEXT",      'C', 254,     0 },
+            {"FEAT_CODE", 'C', 32,      0 },
+            {"FEAT_TYPE", 'C', 64,      0 },
+            {"COLOR",     'N', 4,       0 },
+            {"ELEVATION", 'N', elevLen, dp},
+        };
+    }
+
     private void writeDBF(Path path, List<CADEntity> entities) throws IOException {
+        Object[][] DBF_FIELDS = dbfFields();
         Charset cs = Charset.forName(config.getEncoding());
         int numFields  = DBF_FIELDS.length;
         int recordSize = 1; // deletion flag
@@ -388,13 +429,13 @@ public class ShapefileWriter {
             for (CADEntity e : entities) {
                 out.write(0x20); // not deleted
                 Map<String, Object> props = e.getProperties();
-                writeDbfField(out, str(e.getLayer()),                     64, cs);
-                writeDbfField(out, str(e.getType()),                      16, cs);
-                writeDbfField(out, str(props.get("text")),               254, cs);
-                writeDbfField(out, str(props.get("featureCode")),         32, cs);
-                writeDbfField(out, str(props.get("featureType")),         64, cs);
-                writeDbfNumeric(out, props.get("colorAci"),               4,  0);
-                writeDbfNumeric(out, props.get("elevation"),              10,  4);
+                writeDbfField(out, str(e.getLayer()),                                  64, cs);
+                writeDbfField(out, str(e.getType()),                               16, cs);
+                writeDbfField(out, str(props.get("text")),                        254, cs);
+                writeDbfField(out, str(props.get("featureCode")),                  32, cs);
+                writeDbfField(out, str(props.get("featureType")),                  64, cs);
+                writeDbfNumeric(out, props.get("colorAci"),                         4, 0);
+                writeDbfNumeric(out, props.get("elevation"), (int)DBF_FIELDS[6][2], (int)DBF_FIELDS[6][3]);
             }
             out.write(0x1A); // EOF marker
         }
@@ -431,12 +472,31 @@ public class ShapefileWriter {
     // PRJ file writer
     // -------------------------------------------------------------------------
 
+    /**
+     * 写出 PRJ 文件（Shapefile 坐标系定义）。
+     *
+     * <p>优先级：
+     * <ol>
+     *   <li>若 crs 以 WKT 关键字（{@code GEOGCS[}、{@code PROJCS[}、{@code COMPD_CS[}）开头，
+     *       直接写入——用户自行提供了完整 WKT</li>
+     *   <li>若 crs 为内置 EPSG 代号（如 {@code EPSG:4326}、{@code EPSG:4490}），
+     *       写出对应的 WKT 字符串</li>
+     *   <li>其他情况写出注释行（{@code # CRS: ...}），方便人工识别但 GIS 工具无法自动解析</li>
+     * </ol>
+     */
     private void writePRJ(Path path, String crs) throws IOException {
-        // Write a minimal PRJ: if it looks like EPSG:XXXX, write a brief WKT hint
-        // For a full implementation, a CRS registry would be needed; here we write
-        // the EPSG code as a comment so downstream tools can identify the CRS.
-        String content = "# CRS: " + crs + "\n";
-        Files.writeString(path, content);
+        String trimmed = crs.trim();
+        String upper   = trimmed.toUpperCase(Locale.ROOT);
+        String wkt;
+        if (upper.startsWith("GEOGCS[") || upper.startsWith("PROJCS[") || upper.startsWith("COMPD_CS[")) {
+            wkt = trimmed;  // 用户直接提供了 WKT
+        } else {
+            wkt = KNOWN_WKT.get(upper);
+            if (wkt == null) {
+                wkt = "# CRS: " + trimmed;  // 未知代号，退回注释（不能被 GIS 工具解析）
+            }
+        }
+        Files.writeString(path, wkt);
     }
 
     // -------------------------------------------------------------------------

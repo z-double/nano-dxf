@@ -28,7 +28,7 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.3.0</version>
+    <version>1.3.1</version>
 </dependency>
 ```
 
@@ -92,9 +92,9 @@ import com.nanodxf.output.ShapefileWriter;
 import com.nanodxf.output.ShapefileWriteConfig;
 
 ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
-    .crs("EPSG:4545")           // written to .prj file
+    .crs("EPSG:4490")           // PRJ: built-in WKT for EPSG:4326/4490; comment fallback for others
     .encoding("GBK")            // DBF attribute file encoding
-    .coordinateDecimalPlaces(4)
+    .coordinateDecimalPlaces(4) // ELEVATION field decimal places (affects DBF field width)
     .build();
 
 // Output: output.shp + output.shx + output.dbf + output.prj
@@ -276,10 +276,10 @@ entities.add(CADEntity.builder(CADEntity.Types.SPLINE)
 | `CIRCLE` | `Point` (center) | CIRCLE (requires `radius`) |
 | `HATCH` | `Polygon`/`MultiPolygon` | HATCH (SOLID fill, holes supported) |
 | `INSERT` | `Point` (insertion) | INSERT (requires `blockName`) |
-| `ELLIPSE` | `Point` (center) | ELLIPSE (requires `majorAxisX/Y`, `axisRatio`) (v1.3.0) |
+| `ELLIPSE` | `Point` (center) | ELLIPSE (R2007) / 72-segment POLYLINE approx (R12, v1.3.1) |
 | `SOLID` | `Polygon` / `LinearRing` (3~4 vertices) | SOLID (v1.3.0) |
 | `FACE3D` | `LinearRing` / `Polygon` (3~4 vertices) | 3DFACE (v1.3.0) |
-| `SPLINE` | `LineString` + `controlPoints` property | SPLINE (≥4 ctrl pts); else LWPOLYLINE (v1.3.0) |
+| `SPLINE` | `LineString` + `controlPoints` property | SPLINE (R2007) / POLYLINE (R12, v1.3.1) |
 | any | `GeometryCollection` | recursively expanded |
 
 ### Supported Write Properties
@@ -323,9 +323,9 @@ entities.add(CADEntity.builder(CADEntity.Types.SPLINE)
 
 ```java
 ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
-    .crs("EPSG:4545")           // written to .prj
+    .crs("EPSG:4490")           // PRJ WKT: built-in for EPSG:4326/4490; comment fallback for others
     .encoding("GBK")            // DBF charset (GBK for Chinese GIS tools)
-    .coordinateDecimalPlaces(4)
+    .coordinateDecimalPlaces(4) // ELEVATION field decimal places (also controls DBF field width)
     .build();
 
 new ShapefileWriter(cfg).write(entities, Paths.get("output.shp"));
@@ -339,8 +339,18 @@ new ShapefileWriter(cfg).write(entities, Paths.get("output.shp"));
 | `Point` | POINT (1) |
 | `LineString` / `MultiLineString` / `LinearRing` | POLYLINE (3) |
 | `Polygon` / `MultiPolygon` | POLYGON (5) |
+| No geometry (empty list or all-null) | NULL (0) |
 
-**DBF attribute fields**: `LAYER`(C64) · `ETYPE`(C16) · `TEXT`(C254) · `FEAT_CODE`(C32) · `FEAT_TYPE`(C64) · `COLOR`(N4) · `ELEVATION`(N10.4)
+**.prj CRS support** — priority order:
+
+| `crs` value | PRJ content |
+|---|---|
+| Starts with `GEOGCS[` / `PROJCS[` / `COMPD_CS[` | Written directly (user-supplied WKT) |
+| `EPSG:4326` (WGS 84) | Built-in full WKT |
+| `EPSG:4490` (CGCS2000) | Built-in full WKT |
+| Any other code | Comment line `# CRS: ...` (human-readable, not parsed by GIS tools) |
+
+**DBF attribute fields**: `LAYER`(C64) · `ETYPE`(C16) · `TEXT`(C254) · `FEAT_CODE`(C32) · `FEAT_TYPE`(C64) · `COLOR`(N4) · `ELEVATION`(N{w}.{dp}), where `w` and `dp` are controlled by `coordinateDecimalPlaces`
 
 ---
 

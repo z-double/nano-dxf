@@ -5,6 +5,18 @@
 
 ---
 
+## [1.3.1] - 2026-05-22
+
+### 修复
+
+- **`ShapefileWriter` 空实体 shape type 错误**：实体列表为空或所有几何为 null 时，`detectDominantShapeType` 因 `0>=0` 误判返回 Shape Type 5（POLYGON）；已修复为正确返回 Shape Type 0（NULL）。
+- **`ShapefileWriter.writePRJ` 仅写注释**：原实现向 `.prj` 写出 `# CRS: ...` 注释，任何 GIS 工具均无法解析为坐标系；现改为：用户传入 WKT 字符串时直接写入，传入 `EPSG:4326`/`EPSG:4490` 时写出内置 WKT，其余未知代号退回注释。`.prj` 已可被 QGIS / ArcGIS 等工具正确识别。
+- **`ShapefileWriteConfig.coordinateDecimalPlaces` 未被使用**：Shapefile 写出器改为根据该配置项动态计算 `ELEVATION` 字段长度与小数位（原硬编码 `N10.4`；默认值不变，自定义时生效）。
+- **`DXFWriter.writeArcR2000` 缺少零弧检查**：补充 `startAngle ≈ endAngle` 时跳过写出，与 R12 路径行为保持一致。
+- **`DXFWriter` R12 路径写出 ELLIPSE / SPLINE 不符规范**：R12（AC1009）规范不含 ELLIPSE 和 SPLINE 实体；已将 R12 路径改为：ELLIPSE 离散化为 72 段 POLYLINE 折线近似（参数方程采样，5° 精度），SPLINE 直接使用已离散化的 LineString 写出为 POLYLINE。R2007 路径不受影响，仍写出原生 SPLINE 实体。
+
+---
+
 ## [1.3.0] - 2026-05-21
 
 ### 新增
