@@ -11,8 +11,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.*;
-import java.util.Locale;
-import java.util.Arrays;
 
 /**
  * 将 {@link CADEntity} 列表序列化为 Shapefile 格式（纯 Java 实现，无额外依赖）。
@@ -423,10 +421,10 @@ public class ShapefileWriter {
 
         b.putInt(shapeType);
 
-        // XY bounding box
-        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE;
-        double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
-        double minZ = Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
+        // XY/Z bounding box
+        double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY;
+        double maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+        double minZ = Double.POSITIVE_INFINITY, maxZ = Double.NEGATIVE_INFINITY;
         for (Coordinate[] cs : parts) {
             for (Coordinate c : cs) {
                 if (c.x < minX) minX = c.x; if (c.x > maxX) maxX = c.x;
@@ -501,11 +499,13 @@ public class ShapefileWriter {
             if (rec.length < 4) continue;
             ByteBuffer rb = ByteBuffer.wrap(rec).order(ByteOrder.LITTLE_ENDIAN);
             int st = rb.getInt();
-            if (st == SHP_POINT && rec.length >= 20) {
+            // PointZ(11) 的 XY 布局与 Point(1) 相同；PolylineZ(13)/PolygonZ(15) 的 XY bbox 与 2D 版本同偏移
+            if ((st == SHP_POINT || st == SHP_POINTZ) && rec.length >= 20) {
                 double x = rb.getDouble(), y = rb.getDouble();
                 if (x < minX) minX = x; if (x > maxX) maxX = x;
                 if (y < minY) minY = y; if (y > maxY) maxY = y;
-            } else if ((st == SHP_POLYLINE || st == SHP_POLYGON) && rec.length >= 36) {
+            } else if ((st == SHP_POLYLINE || st == SHP_POLYGON ||
+                        st == SHP_POLYLINEZ || st == SHP_POLYGONZ) && rec.length >= 36) {
                 double bx1 = rb.getDouble(), by1 = rb.getDouble();
                 double bx2 = rb.getDouble(), by2 = rb.getDouble();
                 if (bx1 < minX) minX = bx1; if (bx2 > maxX) maxX = bx2;
@@ -519,7 +519,7 @@ public class ShapefileWriter {
         // Z range：从 Z 型记录中读出实际范围，其他情况写 0
         double zMin = 0, zMax = 0;
         if (shapeType == SHP_POINTZ || shapeType == SHP_POLYLINEZ || shapeType == SHP_POLYGONZ) {
-            zMin = Double.MAX_VALUE; zMax = -Double.MAX_VALUE;
+            zMin = Double.POSITIVE_INFINITY; zMax = Double.NEGATIVE_INFINITY;
             for (byte[] rec : records) {
                 if (rec.length < 4) continue;
                 ByteBuffer rb = ByteBuffer.wrap(rec).order(ByteOrder.LITTLE_ENDIAN);
@@ -529,11 +529,7 @@ public class ShapefileWriter {
                     double z = rb.getDouble();
                     if (z < zMin) zMin = z; if (z > zMax) zMax = z;
                 } else if ((st == SHP_POLYLINEZ || st == SHP_POLYGONZ) && rec.length > 36) {
-                    // Z range 在 XY bbox(32) + numParts(4) + numPoints(4) + parts + XY 之后
-                    // 直接用 bbox[2]/[3] 再往后跳：numParts 和 numPoints 偏移量不定，
-                    // 从 Z range 字段读（它存在于 bbox 后面，offset = 4+32+4+4+4*np+16*npt）
-                    // 简化：扫 Z 值段，取 min/max
-                    rb.position(4); // reset after type
+                    // 跳过 XY bbox（4 doubles）→ 读 numParts/numPoints → 跳 parts+XY → 读 Z range
                     rb.getDouble(); rb.getDouble(); rb.getDouble(); rb.getDouble(); // XY bbox
                     int np = rb.getInt(), npt = rb.getInt();
                     rb.position(rb.position() + 4 * np + 16 * npt); // skip parts + XY
