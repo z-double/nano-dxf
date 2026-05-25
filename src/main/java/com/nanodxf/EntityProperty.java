@@ -309,4 +309,72 @@ public final class EntityProperty {
      * 属性缺失时将 LineString 降级为 LWPOLYLINE 写出。
      */
     public static final String CONTROL_POINTS = "controlPoints";
+
+    // =========================================================================
+    // MTEXT 扩展写出属性（v1.5.0）
+    // =========================================================================
+
+    /**
+     * MTEXT 参考矩形宽度（Double，坐标单位）。
+     * 对应 DXF code 41。0.0 表示无限宽（不自动换行）。
+     */
+    public static final String MTEXT_WIDTH = "mtextWidth";
+
+    /**
+     * MTEXT 附着点（Integer）。
+     * 对应 DXF code 71：1=左上，2=中上，3=右上，4=左中，5=中，6=右中，7=左下，8=中下，9=右下。
+     * 默认 1（左上）。
+     */
+    public static final String MTEXT_ATTACHMENT = "mtextAttachment";
+
+    // =========================================================================
+    // MLINE（多线，v1.5.0）
+    // =========================================================================
+
+    /** MLINE 样式名（String）。对应 DXF code 2。 */
+    public static final String MLINE_STYLE = "mlineStyle";
+
+    /** MLINE 对正方式（Integer）。0=顶线，1=零线（中心），2=底线。对应 DXF code 70。 */
+    public static final String MLINE_JUSTIFICATION = "mlineJustification";
+
+    /** MLINE 比例因子（Double）。对应 DXF code 40。 */
+    public static final String MLINE_SCALE = "mlineScale";
+
+    // =========================================================================
+    // IMAGE / WIPEOUT（v1.5.0）
+    // =========================================================================
+
+    /**
+     * 图像文件路径（String）。
+     * 由 ImageHandler 从关联 IMAGEDEF 对象（code 1）中提取。
+     * 若 IMAGEDEF 不在 objectData 中则为空字符串。
+     */
+    public static final String IMAGE_PATH = "imagePath";
+
+    /**
+     * IMAGEDEF 对象句柄（String）。
+     * IMAGE / WIPEOUT 实体通过 code 340 指向 IMAGEDEF，供调用方进一步查询。
+     */
+    public static final String IMAGE_DEF_HANDLE = "imageDefHandle";
+
+    /**
+     * 遮罩标志（Boolean）。值为 {@code true} 时表示该实体是 WIPEOUT（遮罩矩形）。
+     */
+    public static final String WIPEOUT = "wipeout";
+
+    // =========================================================================
+    // LEADER 写出属性（v1.5.0）
+    // =========================================================================
+
+    /**
+     * 引线箭头类型（Integer）。
+     * 对应 DXF code 71：0=无，1=实心实心箭头，2=闭合实心，3=闭合，4=点，5=积分，6=小点，默认 1。
+     */
+    public static final String LEADER_ARROW_TYPE = "leaderArrowType";
+
+    /**
+     * 引线路径类型（Integer）。
+     * 对应 DXF code 72：0=直线，1=样条。默认 0。
+     */
+    public static final String LEADER_PATH_TYPE = "leaderPathType";
 }

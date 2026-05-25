@@ -64,11 +64,9 @@ abstract class NanoDxfTestBase {
         return ByteBuffer.wrap(h, 4, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
     }
 
-    /** 读取 SHX 文件中的记录数（= (fileLenWords - 50) / 4，其中每条索引 8 字节 = 4 words）。 */
+    /** 读取 SHX 文件中的记录数（100 字节头 + 每条索引 8 字节）。 */
     protected static int readShxRecordCount(Path shx) throws IOException {
-        byte[] h = Files.readAllBytes(shx);
-        int fileLenWords = ByteBuffer.wrap(h, 6, 4).order(ByteOrder.BIG_ENDIAN).getInt();
-        return (fileLenWords - 50) / 4;
+        return (int) ((Files.size(shx) - 100) / 8);
     }
 
     /** 递归删除临时目录（测试清理）。 */

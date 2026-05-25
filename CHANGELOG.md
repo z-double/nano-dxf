@@ -5,6 +5,104 @@
 
 ---
 
+## [1.5.0] - 2026-05-25
+
+### 新增
+
+**方向 D — 解析补全：4 种常见跳过实体**
+
+- `MlineHandler`：MLINE（多线）→ 基准轴线 `LineString`（闭合时为 `LinearRing`），MLINESTYLE 样式名、对正方式、比例存入 properties（`mlineStyle` / `mlineJustification` / `mlineScale`）。
+- `WipeoutHandler`：WIPEOUT（遮罩）→ 矩形包围框 `Polygon`，从插入点 + U/V 像素向量计算四角坐标，`wipeout=true` 属性标识。
+- `ImageHandler`：IMAGE（栅格图像引用）→ 矩形包围框 `Polygon`，图像路径从关联 IMAGEDEF 对象（code 340 → `ctx.objectData`）提取存入 `imagePath` 属性；句柄存入 `imageDefHandle`。
+- `ToleranceHandler`：TOLERANCE（形位公差框）→ 插入点 `Point`，公差字符串存入 `text`，样式名存入 `style`。
+- `EntityDispatcher` 注册以上 4 个 handler，对应类型不再 SKIP。
+
+**方向 B — 空间查询 API**
+
+- `EntityIndex`：基于 JTS `STRtree` 的实体空间索引，懒建（首次查询时 O(n log n) 建树，线程安全）。
+  - `query(Envelope)` — 包围盒粗筛，O(log n + k)
+  - `query(Envelope, String layer, String type)` — 空间 + 属性组合过滤
+  - `byLayer(String)` — 全量图层过滤，O(n)
+  - `byType(String)` — 全量类型过滤（大小写不敏感），O(n)
+  - `size()` / `indexedSize()` — 总实体数 / 已索引实体数
+- `ParseResult.index()` — 懒建 `EntityIndex`，通过 `AtomicReference` 保证线程安全，多次调用返回同一实例。
+
+**方向 C — 写出补全：注记类实体**
+
+- `DIMENSION` 写出（`DXFWriter`）：
+  - R12：写出最小有效 DIMENSION（占位块名 `*D0`，含文字中点、定义点、实测值、类型）
+  - R2007：完整子类标记（`AcDbDimension` + `AcDbAlignedDimension` / `AcDbRotatedDimension` 等，按 `dimensionType` 属性自动选择）
+- `LEADER` 写出（`DXFWriter`）：
+  - R12：写出 LEADER 实体（顶点列表、箭头类型、路径类型）
+  - R2007：同上，含 `AcDbLeader` 子类标记、Z 坐标
+- `MULTILEADER` 写出：R12/R2007 均降级为 LEADER 实体输出
+- `MTEXT` 写出增强：
+  - 宽度（`mtextWidth` → code 41），默认 0.0（不限宽）
+  - 附着点（`mtextAttachment` → code 71），默认 1（左上）
+  - 旋转角（`rotation` → code 50）
+  - 文字样式（`style` → code 7）
+
+**方向 A — GeoPackage 输出**
+
+- `GeoPackageWriter`：纯 Java 实现（依赖 `org.xerial:sqlite-jdbc 3.46.0.0`），输出 OGC GeoPackage `.gpkg` 单文件。
+  - 按几何类型分三张特征表：`points`（Point）、`linestrings`（LineString/MultiLineString）、`polygons`（Polygon/MultiPolygon）
+  - 几何列（`geom`）采用 GeoPackage WKB 编码（GP 魔术字节 `0x4750` + 版本 + flags + SRS ID + ISO 2D WKB，小端字节序）
+  - 属性列：`layer TEXT`、`etype TEXT`、`text TEXT`、`feat_code TEXT`、`feat_type TEXT`、`color INTEGER`、`elevation REAL`
+  - 必需元数据表：`gpkg_spatial_ref_sys`（含 WGS84/4490/3857/32649 内置 WKT）、`gpkg_contents`、`gpkg_geometry_columns`
+  - SQLite pragma：`application_id=0x47504B47`（GPKG），`user_version=10200`（GeoPackage v1.2.0）
+  - 空几何跳过；空类型表不创建
+- `GeoPackageWriteConfig`（Builder 模式）：`crs`、`coordinateDecimalPlaces`
+
+**新增 EntityProperty 常量（v1.5.0）**
+
+| 常量 | 类型 | 说明 |
+|---|---|---|
+| `MTEXT_WIDTH` | Double | MTEXT 参考宽度（code 41） |
+| `MTEXT_ATTACHMENT` | Integer | MTEXT 附着点（code 71，1-9） |
+| `MLINE_STYLE` | String | MLINE 样式名 |
+| `MLINE_JUSTIFICATION` | Integer | MLINE 对正（0/1/2） |
+| `MLINE_SCALE` | Double | MLINE 比例因子 |
+| `IMAGE_PATH` | String | 图像文件路径（从 IMAGEDEF 提取） |
+| `IMAGE_DEF_HANDLE` | String | IMAGEDEF 对象句柄 |
+| `WIPEOUT` | Boolean | 遮罩实体标志 |
+| `LEADER_ARROW_TYPE` | Integer | 引线箭头类型（code 71） |
+| `LEADER_PATH_TYPE` | Integer | 引线路径类型（code 72） |
+
+### 依赖变更
+
+- 新增运行时依赖：`org.xerial:sqlite-jdbc:3.46.0.0`（GeoPackage 输出，纯 Java 无本地库）
+
+### 测试（新增 17 个）
+
+**方向 D（4 个）**
+- `mlineHandler_shouldProduceLineStringWithStyle`
+- `wipeoutHandler_shouldProduceBoundaryPolygon`
+- `imageHandler_shouldProduceBoundingPolygon`
+- `toleranceHandler_shouldProducePointWithText`
+
+**方向 B（5 个）**
+- `entityIndex_bboxQuery_shouldReturnIntersecting`
+- `entityIndex_byLayer_shouldFilterCorrectly`
+- `entityIndex_byType_shouldFilterCorrectly`
+- `entityIndex_query_withLayerAndTypeFilter`
+- `parseResult_index_shouldBeLazyAndConsistent`
+
+**方向 C（5 个）**
+- `dxfWriter_dimension_r2007_shouldProduceDimensionEntity`
+- `dxfWriter_dimension_r12_shouldProduceDimensionEntity`
+- `dxfWriter_leader_r12_shouldProduceLeaderEntity`
+- `dxfWriter_leader_r2007_shouldProduceLeaderEntity`
+- `dxfWriter_multileader_r2007_degradesToLeader`
+- `dxfWriter_mtext_withWidth_shouldWriteCode41`
+
+**方向 A（4 个）**
+- `geoPackageWriter_point_shouldWriteGpkgFile`
+- `geoPackageWriter_multiGeomTypes_shouldWriteSeparateTables`
+- `geoPackageWriter_crs_shouldWriteSrsEntry`
+- `geoPackageWriter_geomBlob_shouldHaveGpMagicBytes`
+
+---
+
 ## [1.4.0] - 2026-05-22
 
 ### 新增

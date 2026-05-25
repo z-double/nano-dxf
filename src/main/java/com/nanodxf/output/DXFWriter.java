@@ -221,6 +221,9 @@ public class DXFWriter {
         else if ("ARC".equals(type) && geom instanceof Point p)    writeArcR12(w, p, entity);
         else if ("CIRCLE".equals(type) && geom instanceof Point p) writeCircleR12(w, p, entity);
         else if ("INSERT".equals(type) && geom instanceof Point p) writeInsertR12(w, p, entity);
+        else if ("DIMENSION".equals(type) && geom instanceof Point p) writeDimensionR12(w, p, entity);
+        else if (("LEADER".equals(type) || "MULTILEADER".equals(type)) && geom instanceof LineString ls)
+            writeLeaderR12(w, ls, entity);
         else if ("ELLIPSE".equals(type) && geom instanceof Point p) writeEllipseR12(w, p, entity);
         else if ("SOLID".equals(type) && (geom instanceof Polygon || geom instanceof LinearRing))
             writeSolidR12(w, geom, entity);
@@ -744,6 +747,9 @@ public class DXFWriter {
         else if ("ARC".equals(type) && geom instanceof Point p)    writeArcR2000(w, p, entity, ownerBR, enH);
         else if ("CIRCLE".equals(type) && geom instanceof Point p) writeCircleR2000(w, p, entity, ownerBR, enH);
         else if ("INSERT".equals(type) && geom instanceof Point p) writeInsertR2000(w, p, entity, ownerBR, enH);
+        else if ("DIMENSION".equals(type) && geom instanceof Point p) writeDimensionR2000(w, p, entity, ownerBR, enH);
+        else if (("LEADER".equals(type) || "MULTILEADER".equals(type)) && geom instanceof LineString ls)
+            writeLeaderR2000(w, ls, entity, ownerBR, enH);
         else if ("ELLIPSE".equals(type) && geom instanceof Point p) writeEllipseR2000(w, p, entity, ownerBR, enH);
         else if ("SOLID".equals(type) && (geom instanceof Polygon || geom instanceof LinearRing))
             writeSolidR2000(w, geom, entity, ownerBR, enH);
@@ -954,14 +960,20 @@ public class DXFWriter {
                                   String ownerBR, int[] h) throws IOException {
         String text = strProp(e, "text");
         if (text.isBlank()) return;
+        double width = dblProp(e, "mtextWidth", 0.0);
+        int attachment = intProp(e, "mtextAttachment", 1);
         pair(w, 0, "MTEXT");
         writeR2000Common(w, e, ownerBR, h);
         pair(w, 100, "AcDbMText");
         pair(w, 10, fmt(p.getX())); pair(w, 20, fmt(p.getY())); pair(w, 30, fmtZ(p.getCoordinate().getZ()));
         pair(w, 40, fmt(dblProp(e, "height", 2.5)));
-        pair(w, 41, fmt(0.0));
-        pair(w, 71, "1"); pair(w, 72, "5");
+        pair(w, 41, fmt(width));
+        pair(w, 71, String.valueOf(attachment));
+        pair(w, 72, "5");
         pair(w, 1, text);
+        double rot = dblProp(e, "rotation", 0.0);
+        if (Math.abs(rot) > 1e-9) pair(w, 50, fmt(rot));
+        pair(w, 7, strPropOrDefault(e, "style", "Standard"));
     }
 
     private void writeEllipseR2000(LineWriter w, Point center, CADEntity e,
@@ -1047,6 +1059,128 @@ public class DXFWriter {
         } else if (aci instanceof Integer v) {
             pair(w, 62, String.valueOf(v));
         }
+    }
+
+    // =========================================================================
+    // v1.5.0 新增写出：DIMENSION / LEADER / MULTILEADER
+    // =========================================================================
+
+    /**
+     * 写出 DIMENSION 实体（R12 路径）。
+     * R12 DIMENSION 不含子类标记，使用占位块名 "*D0"。
+     * geometry() 为 Point（标注文字中点）；DIM_POINT1/DIM_POINT2 存为折线起终点。
+     */
+    private void writeDimensionR12(LineWriter w, Point textPt, CADEntity e) throws IOException {
+        int dimType  = intProp(e, "dimensionType", 1);
+        String text  = strPropOrDefault(e, "text", "<>");
+        double val   = dblProp(e, "dimensionValue", Double.NaN);
+
+        pair(w, 0, "DIMENSION");
+        writeR12Common(w, e);
+        pair(w, 2, "*D0");
+        pair(w, 10, fmt(textPt.getX())); pair(w, 20, fmt(textPt.getY())); pair(w, 30, fmt(0.0));
+        pair(w, 11, fmt(textPt.getX())); pair(w, 21, fmt(textPt.getY())); pair(w, 31, fmt(0.0));
+        pair(w, 70, String.valueOf(dimType));
+        pair(w, 1, text);
+        if (!Double.isNaN(val)) pair(w, 42, fmt(val));
+
+        Object p1 = e.getProperties().get("dimPoint1");
+        Object p2 = e.getProperties().get("dimPoint2");
+        if (p1 instanceof double[] a1 && a1.length >= 2) {
+            pair(w, 13, fmt(a1[0])); pair(w, 23, fmt(a1[1])); pair(w, 33, fmt(0.0));
+        }
+        if (p2 instanceof double[] a2 && a2.length >= 2) {
+            pair(w, 14, fmt(a2[0])); pair(w, 24, fmt(a2[1])); pair(w, 34, fmt(0.0));
+        }
+        double rot = dblProp(e, "dimRotation", 0.0);
+        pair(w, 50, fmt(Double.isNaN(rot) ? 0.0 : rot));
+    }
+
+    /** 写出 DIMENSION 实体（R2007 路径）。 */
+    private void writeDimensionR2000(LineWriter w, Point textPt, CADEntity e,
+                                      String ownerBR, int[] h) throws IOException {
+        int dimType  = intProp(e, "dimensionType", 1);
+        String text  = strPropOrDefault(e, "text", "<>");
+        double val   = dblProp(e, "dimensionValue", Double.NaN);
+
+        // 判断子类标记
+        String subClass = switch (dimType & 0x0F) {
+            case 2 -> "AcDbAngularDimension";
+            case 3 -> "AcDbDiametricDimension";
+            case 4 -> "AcDbRadialDimension";
+            case 5 -> "AcDbAngular3PtDimension";
+            case 6 -> "AcDbOrdinateDimension";
+            default -> (dimType & 1) == 1 ? "AcDbAlignedDimension" : "AcDbRotatedDimension";
+        };
+
+        pair(w, 0, "DIMENSION");
+        writeR2000Common(w, e, ownerBR, h);
+        pair(w, 100, "AcDbDimension");
+        pair(w, 2, "*D0");
+        pair(w, 10, fmt(textPt.getX())); pair(w, 20, fmt(textPt.getY())); pair(w, 30, fmt(0.0));
+        pair(w, 11, fmt(textPt.getX())); pair(w, 21, fmt(textPt.getY())); pair(w, 31, fmt(0.0));
+        pair(w, 70, String.valueOf(dimType));
+        pair(w, 1, text);
+        pair(w, 53, fmt(0.0)); pair(w, 54, fmt(0.0)); pair(w, 55, fmt(0.0));
+        pair(w, 71, "1"); pair(w, 72, "1"); pair(w, 41, fmt(1.0));
+        if (!Double.isNaN(val)) pair(w, 42, fmt(val));
+        pair(w, 100, subClass);
+
+        Object p1 = e.getProperties().get("dimPoint1");
+        Object p2 = e.getProperties().get("dimPoint2");
+        if (p1 instanceof double[] a1 && a1.length >= 2) {
+            pair(w, 13, fmt(a1[0])); pair(w, 23, fmt(a1[1])); pair(w, 33, fmt(0.0));
+        }
+        if (p2 instanceof double[] a2 && a2.length >= 2) {
+            pair(w, 14, fmt(a2[0])); pair(w, 24, fmt(a2[1])); pair(w, 34, fmt(0.0));
+        }
+        double rot = dblProp(e, "dimRotation", 0.0);
+        pair(w, 50, fmt(Double.isNaN(rot) ? 0.0 : rot));
+        pair(w, 52, fmt(0.0));
+    }
+
+    /** 写出 LEADER 实体（R12 路径）。geometry 为 LineString（引线顶点序列）。 */
+    private void writeLeaderR12(LineWriter w, LineString ls, CADEntity e) throws IOException {
+        Coordinate[] coords = ls.getCoordinates();
+        if (coords.length < 2) return;
+        int arrowType = intProp(e, "leaderArrowType", 1);
+        int pathType  = intProp(e, "leaderPathType", 0);
+
+        pair(w, 0, "LEADER");
+        writeR12Common(w, e);
+        pair(w, 3, "Standard");
+        pair(w, 71, String.valueOf(arrowType));
+        pair(w, 72, String.valueOf(pathType));
+        pair(w, 73, "0"); pair(w, 74, "0"); pair(w, 75, "0");
+        pair(w, 40, fmt(0.0)); pair(w, 41, fmt(0.0));
+        pair(w, 76, String.valueOf(coords.length));
+        for (Coordinate c : coords) {
+            pair(w, 10, fmt(c.x)); pair(w, 20, fmt(c.y));
+        }
+    }
+
+    /** 写出 LEADER 实体（R2007 路径）。 */
+    private void writeLeaderR2000(LineWriter w, LineString ls, CADEntity e,
+                                   String ownerBR, int[] h) throws IOException {
+        Coordinate[] coords = ls.getCoordinates();
+        if (coords.length < 2) return;
+        int arrowType = intProp(e, "leaderArrowType", 1);
+        int pathType  = intProp(e, "leaderPathType", 0);
+
+        pair(w, 0, "LEADER");
+        writeR2000Common(w, e, ownerBR, h);
+        pair(w, 100, "AcDbLeader");
+        pair(w, 3, "Standard");
+        pair(w, 71, String.valueOf(arrowType));
+        pair(w, 72, String.valueOf(pathType));
+        pair(w, 73, "0"); pair(w, 74, "0"); pair(w, 75, "0");
+        pair(w, 40, fmt(0.0)); pair(w, 41, fmt(0.0));
+        pair(w, 76, String.valueOf(coords.length));
+        for (Coordinate c : coords) {
+            pair(w, 10, fmt(c.x)); pair(w, 20, fmt(c.y));
+            pair(w, 30, fmtZ(c.getZ()));
+        }
+        pair(w, 77, "0"); // leader color: BYLAYER
     }
 
     /** 向实体末尾追加 XDATA（若 xdata property 存在）。 */
@@ -1215,6 +1349,11 @@ public class DXFWriter {
     private String fmtZ(double z) { return Double.isNaN(z) ? fmt(0.0) : fmt(z); }
 
     private static String hex(int n) { return Integer.toHexString(n).toUpperCase(); }
+
+    private static int intProp(CADEntity e, String key, int def) {
+        Object v = e.getProperties().get(key);
+        return v instanceof Number n ? n.intValue() : def;
+    }
 
     private static String strProp(CADEntity e, String key) {
         Object v = e.getProperties().get(key);

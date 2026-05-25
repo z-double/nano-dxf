@@ -6,6 +6,7 @@ import com.nanodxf.model.DrawingMetadata;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * DXF 解析结果，由 {@link CADParser#parse} 返回。
@@ -34,6 +35,9 @@ public class ParseResult {
     /** 解析统计摘要。 */
     private final ParseStats stats;
 
+    /** 空间索引（懒建，首次调用 {@link #index()} 时初始化）。 */
+    private final AtomicReference<EntityIndex> indexRef = new AtomicReference<>();
+
     private ParseResult(Builder builder) {
         this.entities = Collections.unmodifiableList(new ArrayList<>(builder.entities));
         this.errors   = Collections.unmodifiableList(new ArrayList<>(builder.errors));
@@ -52,6 +56,22 @@ public class ParseResult {
 
     /** 返回解析统计（耗时、实体数、错误数）。 */
     public ParseStats getStats()         { return stats; }
+
+    /**
+     * 返回基于 JTS STRtree 的实体空间索引（懒建，线程安全）。
+     *
+     * <p>首次调用触发建树，耗时 O(n log n)；后续调用直接返回已有索引。
+     * 索引支持包围盒查询 ({@link EntityIndex#query})、
+     * 图层过滤 ({@link EntityIndex#byLayer})、
+     * 类型过滤 ({@link EntityIndex#byType})。
+     */
+    public EntityIndex index() {
+        EntityIndex existing = indexRef.get();
+        if (existing != null) return existing;
+        EntityIndex created = new EntityIndex(entities);
+        indexRef.compareAndSet(null, created);
+        return indexRef.get();
+    }
 
     public static Builder builder() { return new Builder(); }
 

@@ -6,7 +6,7 @@
 
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.4.0</version>
+    <version>1.5.0</version>
     <packaging>jar</packaging>
 
     <name>NanoDXF</name>
@@ -51,6 +51,13 @@
             <groupId>com.googlecode.juniversalchardet</groupId>
             <artifactId>juniversalchardet</artifactId>
             <version>1.0.3</version>
+        </dependency>
+
+        <!-- GeoPackage 输出所需 SQLite 驱动（纯 Java，无本地库） -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>3.46.0.0</version>
         </dependency>
 
         <dependency>

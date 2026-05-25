@@ -54,6 +54,12 @@ public class EntityDispatcher {
         register("LEADER",        new LeaderHandler());
         register("MULTILEADER",   new MultiLeaderHandler());  // v1.4.0 实现
 
+        // v1.5.0 新增实体 handler
+        register("MLINE",         new MlineHandler());
+        register("WIPEOUT",       new WipeoutHandler());
+        register("IMAGE",         new ImageHandler());
+        register("TOLERANCE",     new ToleranceHandler());
+
         register("VIEWPORT",      EntityHandler.SKIP);
 
         // SPI 扩展：第三方 jar 通过 META-INF/services 注册自定义 handler

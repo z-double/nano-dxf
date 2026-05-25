@@ -253,6 +253,23 @@ public class CADEntity {
         public static final String LEADER     = "LEADER";
 
         /**
+         * 多重引线（R2007+）。解析输出 {@code LineString}，写出时降级为 LEADER。
+         */
+        public static final String MULTILEADER = "MULTILEADER";
+
+        /** 形位公差框（GD&amp;T 标注）。解析输出插入点 {@code Point}，文字存入 {@code text}。 */
+        public static final String TOLERANCE  = "TOLERANCE";
+
+        /** 多线（由 MLINESTYLE 定义的平行线束）。解析输出基准轴线 {@code LineString}。 */
+        public static final String MLINE      = "MLINE";
+
+        /** 栅格图像引用。解析输出矩形包围框 {@code Polygon}。 */
+        public static final String IMAGE      = "IMAGE";
+
+        /** 遮罩矩形（白色填充图像，用于隐藏底图区域）。解析输出矩形包围框 {@code Polygon}。 */
+        public static final String WIPEOUT    = "WIPEOUT";
+
+        /**
          * 视口对象（图纸空间）。解析时通过 code 67 过滤，模型空间输出中不包含此类型。
          * 仅在需要处理图纸空间的高级场景中使用。
          */

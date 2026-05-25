@@ -21,8 +21,8 @@
         -->
         <server>
             <id>central</id>
-            <username><<<Central Portal tokenUsername>>></username>
-            <password><<<Central Portal tokenPassword>>></password>
+            <username>CentralPortalTokenUsername</username>
+            <password>CentralPortalTokenPassword</password>
         </server>
     </servers>
 

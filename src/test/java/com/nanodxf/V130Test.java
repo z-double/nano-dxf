@@ -381,12 +381,12 @@ class V130Test extends NanoDxfTestBase {
         Path tmp = Files.createTempDirectory(Paths.get("target"), "shp_");
         try {
             Path shp = tmp.resolve("attrs.shp");
-            new ShapefileWriter().write(List.of(
+            new ShapefileWriter(ShapefileWriteConfig.builder().encoding("UTF-8").build()).write(List.of(
                 CADEntity.builder(CADEntity.Types.POINT).layer("高程点")
                     .geometry(GF.createPoint(new Coordinate(1, 2))).build()), shp);
             String dbfLatin1 = dbfLatin1(tmp.resolve("attrs.dbf"));
             assertThat(dbfLatin1).contains("POINT");
-            // 中文图层名以 UTF-8 写入 GBK DBF，用 ISO-8859-1 字节透传验证存在
+            // 中文图层名以 UTF-8 写入，用 ISO-8859-1 字节透传验证存在
             String layerInLatin1 = new String("高程点".getBytes(java.nio.charset.StandardCharsets.UTF_8),
                     java.nio.charset.StandardCharsets.ISO_8859_1);
             assertThat(dbfLatin1).contains(layerInLatin1);
