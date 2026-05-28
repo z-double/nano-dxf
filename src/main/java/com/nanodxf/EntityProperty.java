@@ -242,6 +242,12 @@ public final class EntityProperty {
      */
     public static final String VALUE = "value";
 
+    /**
+     * ATTDEF 属性提示字符串（String）。
+     * 对应 DXF code 3（INSERT 插入时弹出的输入提示），仅用于 ATTDEF 实体。
+     */
+    public static final String PROMPT = "prompt";
+
     // =========================================================================
     // 椭圆（ELLIPSE）
     // =========================================================================

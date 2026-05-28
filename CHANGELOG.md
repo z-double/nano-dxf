@@ -5,6 +5,101 @@
 
 ---
 
+## [1.6.0] - 2026-05-28
+
+### 新增
+
+**方向 A — OCS/WCS 坐标变换（正确性修复）**
+
+- 新增 `OcsTransformer`（`geometry` 包）：实现 DXF 任意轴算法（Arbitrary Axis Algorithm），将实体坐标系（OCS）还原为世界坐标系（WCS）。
+- 修改 8 个 handler 支持 code 210/220/230 拉伸向量：`ArcHandler`、`CircleHandler`、`TextHandler`、`MTextHandler`、`PointHandler`、`LWPolylineHandler`、`SolidHandler`、`ThreeDFaceHandler`。
+- 快速路径：拉伸向量为默认值 (0,0,1) 时不做矩阵运算，对标准 2D 图纸零性能开销。
+
+**方向 B — SVG 矢量输出**
+
+- 新增 `SvgWriter` + `SvgWriteConfig`（`output` 包），纯 Java 零依赖，输出标准 SVG 1.1。
+- 几何映射：`Point`→`<circle>`，`LineString`→`<polyline>`，`LinearRing`→`<polygon>`，`Polygon`→`<path fill-rule="evenodd">`（含洞）。
+- 图层按 `<g id="layerName">` 分组；颜色从 `colorRgb` / `colorAci` 属性自动解析为 CSS hex。
+- ViewBox 从实体几何包围盒自动计算（不依赖 `$EXTMIN/$EXTMAX`），Y 轴通过 `scale(1,-1)` 翻转。
+- `SvgWriteConfig` 参数：`width`（输出宽度）、`strokeWidthPx`、`pointRadiusPx`、`background`（背景色）、`layerOrder`（图层渲染顺序）。
+
+**方向 C — 解析过滤 API**
+
+- `ParseConfig` 新增三个过滤参数（均大小写不敏感）：
+  - `includeLayers(String...)` — 图层白名单，只解析指定图层。
+  - `excludeLayers(String...)` — 图层黑名单，跳过指定图层（白名单内的图层不受影响）。
+  - `includeTypes(String...)` — 实体类型白名单，只解析指定类型（不计入 skippedEntityTypes）。
+- `EntitiesParser`（`parse()` 和 `spliterator()`）在 dispatcher 调用前过滤，避免无效 JTS 对象创建。
+- `parseStream()` 流式 API 同步应用过滤，行为与 `parse()` 一致。
+
+**方向 D — 测绘专项 API**（新包 `com.nanodxf.survey`）
+
+- `ContourHelper`：从实体列表提取等高线（LWPOLYLINE/POLYLINE），按高程分组。
+  - `extract(entities)` / `extract(entities, layers...)` — 返回 `ContourSet`，支持图层白名单。
+  - 高程提取优先级：`elevation` 属性（code 38）> 顶点 Z 均值。
+- `ContourSet`：等高线集合（内部 `TreeMap<Double, List<CADEntity>>`）。
+  - `byElevation()` / `elevations()` / `range()` / `validate(contourInterval)` / `summary()`。
+  - `validate()` 检查高程值是否为等高距整数倍（容差 1%），返回异常高程列表。
+- `ElevationAnnotation`：POINT 实体与附近 TEXT/MTEXT 高程注记自动配对。
+  - `link(entities, searchRadius)` — 利用 `EntityIndex` 空间近邻查询，返回 `Map<CADEntity, Double>`。
+  - 支持匹配格式：`H=25.30`、`h=100.5`、`▽12.345`、纯小数 `50.1234`。
+- 新增 `AttDefHandler`：解析 ATTDEF（块属性定义）→ `CADEntity`（type=`"ATTDEF"`），提取 tag / prompt / 默认值。
+- 新增 `EntityProperty.PROMPT` 常量；`EntityDispatcher` 注册 `ATTDEF`；`CADEntity.Types.ATTDEF` 常量。
+
+**方向 E — 拓扑检查 API**（新包 `com.nanodxf.topology`）
+
+- `TopologyChecker`：主入口，`check(entities)` / `check(entities, config)` 静态方法。
+- `TopologyCheckConfig`（Builder 模式）：`rules()`、`snapTolerance()`、`maxErrors()`、`contourLayers()`、`lineConnectLayers()`。
+- `TopologyReport`：`isValid()`、`getErrors()`、`byRule(rule)`、`errorCountByRule()`、`summary()`。
+- `TopologyError`：`rule`、`entity`、`otherEntity`（配对类规则）、`location`（JTS Geometry，可直接叠加显示）、`message`。
+- 5 条规则（`TopologyRule` 枚举）：
+  - `DUPLICATE_ENTITY`：EntityIndex 近邻查询 + `equalsExact`，O(n log n)。
+  - `SELF_INTERSECTION`：JTS `IsValidOp`，O(n)。
+  - `ZERO_LENGTH`：`getLength()` / `getArea()` 阈值判断，O(n)。
+  - `DANGLING_ENDPOINT`：端点 STRtree 近邻查询，O(n log n)。
+  - `CONTOUR_CROSSING`：EntityIndex 候选过滤 + `PreparedGeometry.crosses()`，O(n log n + k)。
+- `maxErrors` 上限（默认 1000）防止大文件内存溢出。
+
+### 测试（新增 22 个）
+
+**方向 A（3 个）**
+- `ocsTransformer_defaultExtrusion_shouldReturnOriginalCoords`
+- `ocsTransformer_yAxisExtrusion_shouldTransformCorrectly`
+- `circleHandler_withZDownExtrusion_shouldProduceWcsGeometry`
+
+**方向 B（4 个）**
+- `svgWriter_lineString_shouldProducePolylineElement`
+- `svgWriter_polygon_withHole_shouldUsePathWithFillRule`
+- `svgWriter_point_shouldProduceCircleElement`
+- `svgWriter_layerGrouping_shouldWrapInGElement`
+
+**方向 C（3 个）**
+- `parseConfig_includeLayer_shouldSkipOtherLayers`
+- `parseConfig_includeType_shouldSkipOtherTypes`
+- `parseConfig_excludeLayer_shouldSkipMatchingLayer`
+
+**方向 D（6 个）**
+- `contourHelper_shouldGroupByElevation`
+- `contourHelper_validate_shouldDetectWrongElevations`
+- `contourHelper_range_shouldReturnMinMax`
+- `elevationAnnotation_shouldLinkPointToNearestText`
+- `elevationAnnotation_shouldExtractHPattern`
+- `attDefHandler_shouldExtractTagAndPrompt`
+
+**方向 E（6 个）**
+- `topologyChecker_cleanData_shouldReturnNoErrors`
+- `topologyChecker_duplicateEntity_shouldDetect`
+- `topologyChecker_selfIntersection_shouldDetect`
+- `topologyChecker_zeroLength_shouldDetect`
+- `topologyChecker_danglingEndpoint_shouldDetect`
+- `topologyChecker_contourCrossing_shouldDetect`
+
+### 依赖变更
+
+无新增依赖。全部功能纯 Java 实现，复用现有 JTS 1.19.0。
+
+---
+
 ## [1.5.0] - 2026-05-25
 
 ### 新增

@@ -45,6 +45,7 @@ public class EntityDispatcher {
         register("MTEXT",         new MTextHandler());
         register("INSERT",        new InsertHandler());
         register("ATTRIB",        new AttribHandler());
+        register("ATTDEF",        new AttDefHandler());
         register("HATCH",         new HatchHandler());
         register("DIMENSION",     new DimensionHandler());
         register("3DFACE",        new ThreeDFaceHandler());

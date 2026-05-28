@@ -6,6 +6,7 @@ import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
 import com.nanodxf.entity.EntityHandler;
 import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.geometry.OcsTransformer;
 import com.nanodxf.model.DXFContext;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.LinearRing;
@@ -32,11 +33,14 @@ public class ThreeDFaceHandler implements EntityHandler {
     public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
         String handle = buffer.getString(5, "");
         String layer  = buffer.getString(8, "0");
+        double nx = buffer.getDouble(210, 0.0);
+        double ny = buffer.getDouble(220, 0.0);
+        double nz = buffer.getDouble(230, 1.0);
 
-        Coordinate v0 = new Coordinate(buffer.getDouble(10, 0), buffer.getDouble(20, 0), buffer.getDouble(30, 0));
-        Coordinate v1 = new Coordinate(buffer.getDouble(11, 0), buffer.getDouble(21, 0), buffer.getDouble(31, 0));
-        Coordinate v2 = new Coordinate(buffer.getDouble(12, 0), buffer.getDouble(22, 0), buffer.getDouble(32, 0));
-        Coordinate v3 = new Coordinate(buffer.getDouble(13, 0), buffer.getDouble(23, 0), buffer.getDouble(33, 0));
+        Coordinate v0 = ocs(buffer.getDouble(10, 0), buffer.getDouble(20, 0), buffer.getDouble(30, 0), nx, ny, nz);
+        Coordinate v1 = ocs(buffer.getDouble(11, 0), buffer.getDouble(21, 0), buffer.getDouble(31, 0), nx, ny, nz);
+        Coordinate v2 = ocs(buffer.getDouble(12, 0), buffer.getDouble(22, 0), buffer.getDouble(32, 0), nx, ny, nz);
+        Coordinate v3 = ocs(buffer.getDouble(13, 0), buffer.getDouble(23, 0), buffer.getDouble(33, 0), nx, ny, nz);
 
         // 若 v3 与 v2 完全相同则为三角面
         boolean isTriangle = v2.equals3D(v3);
@@ -51,5 +55,11 @@ public class ThreeDFaceHandler implements EntityHandler {
         LinearRing geom = GeometryBuilder.factory().createLinearRing(coords);
         return List.of(CADEntity.builder("3DFACE")
                 .handle(handle).layer(layer).geometry(geom).build());
+    }
+
+    private static Coordinate ocs(double x, double y, double z, double nx, double ny, double nz) {
+        return OcsTransformer.isDefault(nx, ny, nz)
+                ? new Coordinate(x, y, z)
+                : OcsTransformer.toWcs(x, y, z, nx, ny, nz);
     }
 }

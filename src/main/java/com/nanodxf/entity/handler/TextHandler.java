@@ -6,6 +6,7 @@ import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
 import com.nanodxf.entity.EntityHandler;
 import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.geometry.OcsTransformer;
 import com.nanodxf.model.DXFContext;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Point;
@@ -44,9 +45,15 @@ public class TextHandler implements EntityHandler {
         double height   = buffer.getDouble(40, 2.5);
         double rotation = buffer.getDouble(50, 0);
         String style = buffer.getString(7, "Standard");
+        double nx = buffer.getDouble(210, 0.0);
+        double ny = buffer.getDouble(220, 0.0);
+        double nz = buffer.getDouble(230, 1.0);
 
-        Point geom = GeometryBuilder.factory()
-                .createPoint(new Coordinate(x, y, z));
+        Coordinate insertPt = OcsTransformer.isDefault(nx, ny, nz)
+                ? new Coordinate(x, y, z)
+                : OcsTransformer.toWcs(x, y, z, nx, ny, nz);
+
+        Point geom = GeometryBuilder.factory().createPoint(insertPt);
 
         return List.of(CADEntity.builder("TEXT")
                 .handle(handle)

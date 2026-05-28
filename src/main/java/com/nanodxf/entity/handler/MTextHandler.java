@@ -6,6 +6,7 @@ import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
 import com.nanodxf.entity.EntityHandler;
 import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.geometry.OcsTransformer;
 import com.nanodxf.model.DXFContext;
 import com.nanodxf.text.MTextCleaner;
 import org.locationtech.jts.geom.Coordinate;
@@ -45,6 +46,9 @@ public class MTextHandler implements EntityHandler {
         double z    = buffer.getDouble(30, 0);
         double height   = buffer.getDouble(40, 2.5);
         double rotation = buffer.getDouble(50, 0);
+        double nx = buffer.getDouble(210, 0.0);
+        double ny = buffer.getDouble(220, 0.0);
+        double nz = buffer.getDouble(230, 1.0);
 
         // 拼接文本：code 3 续行（先出现）+ code 1 主内容
         // DXF 规范：code 3 可以出现多次，按顺序拼接，code 1 在最后
@@ -55,8 +59,11 @@ public class MTextHandler implements EntityHandler {
         // 清洗格式控制码
         String cleanText = MTextCleaner.clean(rawText.toString());
 
-        Point geom = GeometryBuilder.factory()
-                .createPoint(new Coordinate(x, y, z));
+        Coordinate insertPt = OcsTransformer.isDefault(nx, ny, nz)
+                ? new Coordinate(x, y, z)
+                : OcsTransformer.toWcs(x, y, z, nx, ny, nz);
+
+        Point geom = GeometryBuilder.factory().createPoint(insertPt);
 
         return List.of(CADEntity.builder("MTEXT")
                 .handle(handle)

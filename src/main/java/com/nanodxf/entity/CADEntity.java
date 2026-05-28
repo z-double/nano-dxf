@@ -204,6 +204,12 @@ public class CADEntity {
          */
         public static final String ATTRIB     = "ATTRIB";
 
+        /**
+         * 块属性定义（{@code "ATTDEF"}）。
+         * 块内的属性模板，定义 tag / prompt / 默认值（v1.6.0）。
+         */
+        public static final String ATTDEF     = "ATTDEF";
+
         // ---- 填充 / 面实体 ----
 
         /**

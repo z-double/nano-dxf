@@ -60,6 +60,10 @@ public class EntitiesParser {
 
             if (!PaperSpaceFilter.isModelSpace(buffer)) continue;
 
+            // 解析过滤：图层白黑名单 + 实体类型白名单（不计入 skippedEntityTypes）
+            String layer = buffer.getString(8, "0");
+            if (!ctx.config.accepts(entityType, layer)) continue;
+
             List<CADEntity> dispatched = dispatcher.dispatch(entityType, buffer, ctx);
             if (dispatched == null) {
                 // 未注册类型 → 记录 skipped（INFO 级别，由 CADParser 统一追加到 errors）
@@ -125,6 +129,9 @@ public class EntitiesParser {
                             collectChildEntities(reader, buffer, Set.of("ATTRIB"));
 
                         if (!PaperSpaceFilter.isModelSpace(buffer)) return List.of();
+
+                        String layer = buffer.getString(8, "0");
+                        if (!ctx.config.accepts(entityType, layer)) return List.of();
 
                         List<CADEntity> dispatched = dispatcher.dispatch(entityType, buffer, ctx);
                         if (dispatched == null) {

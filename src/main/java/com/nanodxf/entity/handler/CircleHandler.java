@@ -5,6 +5,7 @@ import com.nanodxf.entity.EntityBuffer;
 import com.nanodxf.entity.EntityHandler;
 import com.nanodxf.geometry.Discretizer;
 import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.geometry.OcsTransformer;
 import com.nanodxf.model.DXFContext;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.LinearRing;
@@ -27,7 +28,8 @@ import java.util.List;
  * 采样点数基于弦高误差（sagitta ≤ arcTolerance）自适应计算，不低于 8 点。
  * 末尾强制令首尾坐标完全相同，保证 JTS 闭合要求。
  *
- * <p>注意：忽略 OCS 拉伸向量（code 210/220/230）。
+ * <p>支持 OCS 拉伸向量（code 210/220/230）：非默认时调用 {@link OcsTransformer} 将圆上
+ * 各点从实体坐标系还原到世界坐标系。
  */
 public class CircleHandler implements EntityHandler {
 
@@ -40,6 +42,9 @@ public class CircleHandler implements EntityHandler {
         double cy = buffer.getDouble(20, 0);
         double cz = buffer.getDouble(30, 0);
         double r  = buffer.getDouble(40, 0);
+        double nx = buffer.getDouble(210, 0.0);
+        double ny = buffer.getDouble(220, 0.0);
+        double nz = buffer.getDouble(230, 1.0);
 
         if (r <= 0) return List.of(); // 无效半径
 
@@ -53,6 +58,13 @@ public class CircleHandler implements EntityHandler {
 
         // 设置 Z 坐标
         pts.forEach(p -> p.setZ(cz));
+
+        // OCS→WCS 变换：非默认拉伸向量时将各点还原到世界坐标系
+        if (!OcsTransformer.isDefault(nx, ny, nz)) {
+            pts = pts.stream()
+                    .map(p -> OcsTransformer.toWcs(p, nx, ny, nz))
+                    .toList();
+        }
 
         LinearRing geom = GeometryBuilder.factory()
                 .createLinearRing(pts.toArray(new Coordinate[0]));

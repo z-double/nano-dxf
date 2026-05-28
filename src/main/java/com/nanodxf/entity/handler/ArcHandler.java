@@ -5,6 +5,7 @@ import com.nanodxf.entity.EntityBuffer;
 import com.nanodxf.entity.EntityHandler;
 import com.nanodxf.geometry.Discretizer;
 import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.geometry.OcsTransformer;
 import com.nanodxf.model.DXFContext;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.LineString;
@@ -27,7 +28,8 @@ import java.util.List;
  * <p>输出：弧线离散化为 JTS {@link LineString}。
  * 采样点数基于弦高误差（sagitta ≤ arcTolerance）自适应计算，不低于 8 点。
  *
- * <p>注意：忽略 OCS 拉伸向量（code 210/220/230）。
+ * <p>支持 OCS 拉伸向量（code 210/220/230）：非默认时调用 {@link OcsTransformer} 将弧线
+ * 各点从实体坐标系还原到世界坐标系。
  */
 public class ArcHandler implements EntityHandler {
 
@@ -43,6 +45,9 @@ public class ArcHandler implements EntityHandler {
         // DXF 弧线默认逆时针，起始角默认 0°，终止角默认 360°
         double startAngle = buffer.getDouble(50, 0);
         double endAngle   = buffer.getDouble(51, 360);
+        double nx = buffer.getDouble(210, 0.0);
+        double ny = buffer.getDouble(220, 0.0);
+        double nz = buffer.getDouble(230, 1.0);
 
         if (r <= 0) return List.of();
 
@@ -52,6 +57,13 @@ public class ArcHandler implements EntityHandler {
 
         // 将圆心 Z 赋给弧线所有点（ARC 是 2D 实体，Z 存在 code 30）
         pts.forEach(p -> p.setZ(cz));
+
+        // OCS→WCS 变换：非默认拉伸向量时将各点还原到世界坐标系
+        if (!OcsTransformer.isDefault(nx, ny, nz)) {
+            pts = pts.stream()
+                    .map(p -> OcsTransformer.toWcs(p, nx, ny, nz))
+                    .toList();
+        }
 
         LineString geom = GeometryBuilder.factory()
                 .createLineString(pts.toArray(new Coordinate[0]));

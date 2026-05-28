@@ -6,6 +6,7 @@ import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
 import com.nanodxf.entity.EntityHandler;
 import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.geometry.OcsTransformer;
 import com.nanodxf.model.DXFContext;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Point;
@@ -31,18 +32,24 @@ public class PointHandler implements EntityHandler {
         String handle = buffer.getString(5, "");
         String layer  = buffer.getString(8, "0");
 
-        double x = buffer.getDouble(10, 0);
-        double y = buffer.getDouble(20, 0);
-        double z = buffer.getDouble(30, 0); // 高程值
+        double x  = buffer.getDouble(10, 0);
+        double y  = buffer.getDouble(20, 0);
+        double z  = buffer.getDouble(30, 0); // 高程值
+        double nx = buffer.getDouble(210, 0.0);
+        double ny = buffer.getDouble(220, 0.0);
+        double nz = buffer.getDouble(230, 1.0);
 
-        Point geom = GeometryBuilder.factory()
-                .createPoint(new Coordinate(x, y, z));
+        Coordinate wcs = OcsTransformer.isDefault(nx, ny, nz)
+                ? new Coordinate(x, y, z)
+                : OcsTransformer.toWcs(x, y, z, nx, ny, nz);
+
+        Point geom = GeometryBuilder.factory().createPoint(wcs);
 
         return List.of(CADEntity.builder("POINT")
                 .handle(handle)
                 .layer(layer)
                 .geometry(geom)
-                .property("elevation", z)
+                .property("elevation", wcs.z)
                 .build());
     }
 }

@@ -8,15 +8,19 @@
 
 ## 特性
 
-- **全主流实体解析**：LINE / ARC / CIRCLE / ELLIPSE / POINT / TEXT / MTEXT / LWPOLYLINE / POLYLINE / SPLINE / HATCH / INSERT / 3DFACE / SOLID / DIMENSION / LEADER / MULTILEADER
+- **全主流实体解析**：LINE / ARC / CIRCLE / ELLIPSE / POINT / TEXT / MTEXT / LWPOLYLINE / POLYLINE / SPLINE / HATCH / INSERT / 3DFACE / SOLID / DIMENSION / LEADER / MULTILEADER / ATTDEF
+- **OCS/WCS 坐标变换**：自动应用任意轴算法（Arbitrary Axis Algorithm），正确还原三维/旋转实体坐标（v1.6.0）
 - **INSERT 块递归展开**：仿射变换（缩放 → 旋转 → 平移）、路径集合循环引用检测
 - **国内测绘软件适配**：CASS / EPS / MapMatrix / MapGIS / SuperMap XDATA 地物编码提取，内置约 80 条 GB/T 20257 映射
 - **BYLAYER 颜色继承**：ACI 256 色表 → 图层颜色 → 实体颜色完整链路
 - **编码自适应**：UTF-8 BOM → juniversalchardet 检测 → 版本号推断 → GBK 兜底
 - **容错解析**：截断文件、损坏实体、未知实体类型均不中断，错误分级收集（FATAL / WARN / INFO）
-- **多格式输出**：GeoJSON（坐标精度可配）、Shapefile（SHP/SHX/DBF/PRJ，纯 Java 无额外依赖；自动 2D/3D 输出，含 PointZ/PolylineZ/PolygonZ）
-- **DXF 写出**：15 种实体类型 + 块定义，R12 / R2007 双路径，浩辰 CAD / AutoCAD 验证通过
+- **解析过滤**：`includeLayers` / `excludeLayers` / `includeTypes`，大文件按需跳过无关图层（v1.6.0）
+- **多格式输出**：GeoJSON、Shapefile（2D/3D）、GeoPackage、**SVG**（v1.6.0，零依赖矢量预览）
+- **DXF 写出**：16 种实体类型 + 块定义，R12 / R2007 双路径，浩辰 CAD / AutoCAD 验证通过
 - **流式解析 API**：`parseStream(Path)` 两阶段惰性流，大文件低内存占用
+- **测绘专项 API**：`ContourHelper`（等高线分组/验证）、`ElevationAnnotation`（高程点注记配对）（v1.6.0）
+- **拓扑检查 API**：`TopologyChecker` 5 条规则（重复实体/自相交/零长度/悬挂端点/等高线交叉），零额外依赖（v1.6.0）
 
 ---
 
@@ -28,7 +32,7 @@
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.4.0</version>
+    <version>1.6.0</version>
 </dependency>
 ```
 

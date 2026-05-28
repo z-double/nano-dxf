@@ -6,6 +6,7 @@ import com.nanodxf.entity.EntityBuffer;
 import com.nanodxf.entity.EntityHandler;
 import com.nanodxf.geometry.Discretizer;
 import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.geometry.OcsTransformer;
 import com.nanodxf.model.DXFContext;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
@@ -48,6 +49,9 @@ public class LWPolylineHandler implements EntityHandler {
         double elevation = buffer.getDouble(38, 0.0); // 整体 Z 高度
         int flags        = buffer.getInt(70, 0);
         boolean closed   = (flags & 1) == 1;
+        double nx = buffer.getDouble(210, 0.0);
+        double ny = buffer.getDouble(220, 0.0);
+        double nz = buffer.getDouble(230, 1.0);
 
         // 按出现顺序收集顶点和凸度
         // 顶点以 code 10（X）+ code 20（Y）配对出现，bulge（code 42）紧随可选
@@ -77,6 +81,13 @@ public class LWPolylineHandler implements EntityHandler {
         List<Coordinate> coords = buildCoords(vertices, bulges, closed, elevation, tolerance);
 
         if (coords.size() < 2) return List.of();
+
+        // OCS→WCS 变换：非默认拉伸向量时将各点（含 elevation 作为 Z）还原到世界坐标系
+        if (!OcsTransformer.isDefault(nx, ny, nz)) {
+            coords = coords.stream()
+                    .map(p -> OcsTransformer.toWcs(p, nx, ny, nz))
+                    .toList();
+        }
 
         Geometry geom = buildGeometry(coords, closed);
 
