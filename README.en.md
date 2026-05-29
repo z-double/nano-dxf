@@ -1,22 +1,34 @@
 # NanoDXF
 
-**Lightweight DXF file parser and writer for GIS / surveying use cases.**
+**Lightweight DXF file parser, writer, and GIS analysis toolkit for surveying use cases.**
 
-Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. Outputs JTS geometry objects, GeoJSON, and Shapefile.
+Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. Outputs JTS geometry objects, GeoJSON, Shapefile, GeoPackage, SVG, CSV, ESRI ASCII Grid, and more.
 
 ---
 
 ## Features
 
-- **All major entity types**: LINE / ARC / CIRCLE / ELLIPSE / POINT / TEXT / MTEXT / LWPOLYLINE / POLYLINE / SPLINE / HATCH / INSERT / 3DFACE / SOLID / DIMENSION / LEADER / MULTILEADER
+- **All major entity types**: LINE / ARC / CIRCLE / ELLIPSE / POINT / TEXT / MTEXT / LWPOLYLINE / POLYLINE / SPLINE / HATCH / INSERT / 3DFACE / SOLID / DIMENSION / LEADER / MULTILEADER / ATTDEF / MLINE / WIPEOUT / IMAGE / TOLERANCE
+- **OCS/WCS coordinate transform**: Arbitrary Axis Algorithm, correctly restores 3D/rotated entity coordinates (v1.6.0)
 - **Recursive INSERT expansion**: affine transform (scale → rotate → translate), path-set cycle detection
 - **Chinese surveying software support**: CASS / EPS / MapMatrix / MapGIS / SuperMap XDATA feature code extraction, ~80 built-in GB/T 20257 mappings
 - **BYLAYER color inheritance**: ACI 256-color table → layer color → entity color full chain
 - **Auto encoding detection**: UTF-8 BOM → juniversalchardet → version inference → GBK fallback
 - **Fault-tolerant parsing**: truncated files, corrupted entities, unknown entity types never abort parsing; errors collected with severity levels (FATAL / WARN / INFO)
-- **Multiple output formats**: GeoJSON (configurable precision), Shapefile (SHP/SHX/DBF/PRJ, pure Java; auto 2D/3D with PointZ/PolylineZ/PolygonZ support)
-- **DXF write**: 15 entity types + block definitions, R12 / R2007 dual-path, verified with GstarCAD / AutoCAD
+- **Parse filtering**: `includeLayers` / `excludeLayers` / `includeTypes`, skip irrelevant layers on large files (v1.6.0)
+- **Multiple output formats**: GeoJSON, Shapefile (2D/3D), GeoPackage, SVG (v1.6.0, zero-dependency vector preview), point-cloud CSV (v1.7.0), ESRI ASCII Grid DEM (v1.7.0)
+- **DXF write**: 16 entity types + block definitions, R12 / R2007 dual-path, verified with GstarCAD / AutoCAD
 - **Streaming parse API**: `parseStream(Path)` two-phase lazy stream, low memory for large files
+- **Spatial index**: `EntityIndex` (JTS STRtree), `query(Envelope)` / `byLayer` / `byType` (v1.5.0)
+- **Surveying API**: `ContourHelper` (contour grouping/validation), `ElevationAnnotation` (elevation annotation matching) (v1.6.0)
+- **Topology check API**: `TopologyChecker` with 5 rules (duplicate / self-intersection / zero-length / dangling endpoint / contour crossing) (v1.6.0)
+- **Topology repair API**: `TopologyFixer` — auto dedup, zero-length removal, endpoint snapping (v1.7.0)
+- **Polygon reconstruction**: `PolygonBuilder` — LinearRing → Polygon, JTS Polygonizer hole detection (v1.7.0)
+- **Geometry simplification**: `GeomSimplifier` — vertex reduction (topology-preserving / Douglas-Peucker) (v1.7.0)
+- **Layer statistics**: `LayerStats` — per-layer count / total length / total area, with unit conversion (v1.7.0)
+- **DEM construction + ASCII Grid output**: `DemBuilder` Delaunay TIN interpolation, `AscGridWriter` ESRI .asc format (v1.7.0)
+- **Slope / aspect analysis**: `SlopeAnalyzer` Horn's method 3×3 finite-difference neighborhood (v1.7.0)
+- **Sheet edge matching**: `SheetEdgeMatcher` — endpoint gap check along vertical/horizontal/arbitrary join edges (v1.7.0)
 
 ---
 
@@ -28,7 +40,7 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.4.0</version>
+    <version>1.7.0</version>
 </dependency>
 ```
 
@@ -48,7 +60,6 @@ for (CADEntity entity : result.getEntities()) {
     System.out.println("  geometry=" + entity.geometry());
 }
 
-// Review errors and stats
 result.getErrors().forEach(System.err::println);
 System.out.println(result.getStats());
 ```
@@ -58,18 +69,16 @@ System.out.println(result.getStats());
 ```java
 ParseConfig config = ParseConfig.builder()
     .crs("EPSG:4545")           // CGCS2000 3-Degree GK CM 117E
-    .arcTolerance(0.001)        // arc discretization chord-height tolerance (meters)
-    .coordinateDecimalPlaces(4) // GeoJSON coordinate decimal places
+    .arcTolerance(0.001)        // arc discretization chord-height tolerance
+    .includeLayers("等高线", "建筑")  // layer whitelist (v1.6.0)
     .build();
 
 ParseResult result = new CADParser(config).parse(Paths.get("drawing.dxf"));
 ```
 
-### Streaming Parse (Low Memory for Large Files)
+### Streaming Parse (Low Memory)
 
 ```java
-// Two-phase: eagerly load BLOCKS/TABLES → lazily stream ENTITIES
-// Must be used in try-with-resources (stream holds a file handle)
 try (Stream<CADEntity> stream = new CADParser().parseStream(Paths.get("large.dxf"))) {
     stream.filter(e -> CADEntity.Types.LWPOLYLINE.equals(e.getType()))
           .limit(10_000)
@@ -77,7 +86,154 @@ try (Stream<CADEntity> stream = new CADParser().parseStream(Paths.get("large.dxf
 }
 ```
 
-### Export GeoJSON
+---
+
+## Surveying & Analysis API (v1.6.0 / v1.7.0)
+
+### Contour Grouping and Validation
+
+```java
+import com.nanodxf.survey.ContourHelper;
+import com.nanodxf.survey.ContourSet;
+
+ContourSet cs = ContourHelper.extract(result.getEntities(), "等高线", "计曲线");
+System.out.println(cs.summary());
+
+// Validate: all elevations must be multiples of contour interval
+List<Double> bad = cs.validate(5.0);  // 5m contour interval
+if (!bad.isEmpty()) System.err.println("Anomalous elevations: " + bad);
+```
+
+### Topology Check
+
+```java
+import com.nanodxf.topology.*;
+
+TopologyReport report = TopologyChecker.check(result.getEntities(),
+    TopologyCheckConfig.builder()
+        .rules(TopologyRule.DUPLICATE_ENTITY, TopologyRule.DANGLING_ENDPOINT,
+               TopologyRule.CONTOUR_CROSSING)
+        .contourLayers("等高线", "计曲线")
+        .lineConnectLayers("道路", "水系")
+        .snapTolerance(0.001)
+        .build());
+
+System.out.println(report.summary());
+```
+
+### Topology Repair
+
+```java
+import com.nanodxf.topology.*;
+
+TopologyFixResult fixed = TopologyFixer.fix(result.getEntities(),
+    TopologyFixConfig.builder()
+        .rules(TopologyRule.DUPLICATE_ENTITY, TopologyRule.ZERO_LENGTH,
+               TopologyRule.DANGLING_ENDPOINT)
+        .snapTolerance(0.01)
+        .build());
+
+System.out.println(fixed.summary());
+List<CADEntity> cleanEntities = fixed.getEntities();
+```
+
+### Polygon Reconstruction (LinearRing → Polygon)
+
+```java
+import com.nanodxf.geometry.PolygonBuilder;
+
+List<CADEntity> buildings = result.getEntities().stream()
+    .filter(e -> "建筑".equals(e.getLayer())).toList();
+
+List<CADEntity> polygons = PolygonBuilder.build(buildings);  // hole detection
+double totalArea = polygons.stream()
+    .mapToDouble(e -> e.geometry().getArea()).sum();
+```
+
+### Geometry Simplification
+
+```java
+import com.nanodxf.geometry.GeomSimplifier;
+import com.nanodxf.geometry.SimplifyMode;
+
+// Contour simplification before SVG/Shapefile export
+List<CADEntity> slim = GeomSimplifier.simplify(result.getEntities(), 0.1);
+
+// Or simplify ContourSet directly
+ContourSet simplified = GeomSimplifier.simplifyContours(cs, 0.5);
+```
+
+### Layer Statistics
+
+```java
+import com.nanodxf.stat.LayerStats;
+
+// Raw coordinate units
+Map<String, LayerStatRow> stats = LayerStats.compute(result.getEntities());
+System.out.println(LayerStats.summary(stats));
+
+// With unit conversion (→ meters / m²)
+Map<String, LayerStatRow> stats = LayerStats.compute(
+    result.getEntities(), result.getMetadata());
+```
+
+### Point Cloud CSV Export
+
+```java
+import com.nanodxf.output.*;
+
+CsvWriteConfig cfg = CsvWriteConfig.builder()
+    .fields(CsvField.X, CsvField.Y, CsvField.Z,
+            CsvField.LAYER, CsvField.FEATURE_CODE)
+    .delimiter(',')
+    .build();
+CsvWriter.write(result.getEntities(), Path.of("output.csv"), cfg);
+```
+
+### DEM Construction and Slope Analysis
+
+```java
+import com.nanodxf.dem.*;
+import com.nanodxf.survey.*;
+
+ContourSet cs = ContourHelper.extract(result.getEntities(), "等高线");
+
+// Build DEM (1m cell size)
+DemGrid dem = DemBuilder.build(cs, 1.0);
+
+// Write ESRI ASCII Grid
+AscGridWriter.write(dem, Path.of("dem.asc"));
+
+// Slope / aspect (Horn's method)
+SlopeGrid sg = SlopeAnalyzer.analyze(dem);
+System.out.printf("Mean slope: %.2f°%n", sg.meanSlope());
+```
+
+### Sheet Edge Matching
+
+```java
+import com.nanodxf.sheet.*;
+
+// Vertical join edge at x = 50000, band ±2m, gap tolerance 0.5m
+SheetEdgeReport report = SheetEdgeMatcher.matchVertical(
+    entitiesA, entitiesB, 50000.0, 2.0, 0.5);
+
+System.out.println(report.summary());
+if (!report.isClean()) {
+    for (EdgeGap gap : report.getGaps()) {
+        System.out.printf("Gap: A=%s B=%s dist=%.4f%n",
+            gap.getEntityA().getHandle(),
+            gap.getEntityB().getHandle(),
+            gap.getDistance());
+    }
+}
+```
+
+---
+
+## Output Formats
+
+### GeoJSON
 
 ```java
 GeoJsonSerializer ser = new GeoJsonSerializer(result.getMetadata());
@@ -85,315 +241,73 @@ String geojson = ser.serialize(result.getEntities(), result.getMetadata());
 Files.writeString(Paths.get("output.geojson"), geojson);
 ```
 
-### Export Shapefile
+### Shapefile
 
 ```java
-import com.nanodxf.output.ShapefileWriter;
-import com.nanodxf.output.ShapefileWriteConfig;
-
 ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
-    .crs("EPSG:4545")           // PRJ WKT: v1.4.0 built-in for EPSG:4326/4490/4534-4554/32644-32654
-    .encoding("GBK")            // DBF attribute file encoding
-    .coordinateDecimalPlaces(4) // ELEVATION field decimal places
-    // .dimension(ShapefileWriteConfig.ShapeDimension.AUTO)  // default: auto 3D when Z exists
+    .crs("EPSG:4545")
+    .encoding("GBK")
     .build();
-
-// Output: output.shp + output.shx + output.dbf + output.prj
 new ShapefileWriter(cfg).write(result.getEntities(), Paths.get("output.shp"));
+```
+
+### SVG (v1.6.0)
+
+```java
+SvgWriteConfig cfg = SvgWriteConfig.builder()
+    .width(1200).background("#ffffff").build();
+String svg = new SvgWriter(cfg).serialize(result.getEntities());
+Files.writeString(Paths.get("output.svg"), svg);
+```
+
+### GeoPackage
+
+```java
+GeoPackageWriteConfig cfg = GeoPackageWriteConfig.builder()
+    .layerName("drawing").crs("EPSG:4545").build();
+new GeoPackageWriter(cfg).write(result.getEntities(), Paths.get("output.gpkg"));
 ```
 
 ---
 
-## API Overview
-
-### CADParser
-
-| Method | Description |
-|---|---|
-| `parse(Path path)` | Parse DXF file (auto encoding detection) |
-| `parse(Reader reader)` | Parse from Reader (useful in unit tests) |
-| `parseStream(Path path)` | Lazy-streaming parse; returns `Stream<CADEntity>` (v1.3.0) |
-
-### ParseConfig (Builder pattern)
-
-| Parameter | Default | Description |
-|---|---|---|
-| `crs` | null | CRS identifier (e.g. `EPSG:4545`) |
-| `arcTolerance` | 0.01 | Arc/spline chord-height tolerance (coordinate units) |
-| `coordinateDecimalPlaces` | 4 | GeoJSON coordinate decimal places (0~15) |
+## API Reference
 
 ### ParseResult
 
-| Method | Return type | Description |
+| Method | Return | Description |
 |---|---|---|
 | `getEntities()` | `List<CADEntity>` | Model-space entities (INSERT blocks expanded) |
 | `getErrors()` | `List<ParseError>` | Leveled error list |
 | `getStats()` | `ParseStats` | Parse time, entity count, error counts |
-| `getMetadata()` | `DrawingMetadata` | Version, units, CRS, etc. |
+| `getMetadata()` | `DrawingMetadata` | Version, units, CRS metadata |
+| `index()` | `EntityIndex` | Lazy-built spatial index (STRtree) |
 
 ### CADEntity
 
 ```java
-entity.getType()         // "LINE" / "ARC" / "INSERT" etc.
+entity.getType()         // "LINE" / "ARC" / "LWPOLYLINE" etc.
 entity.getLayer()        // layer name
-entity.getHandle()       // DXF handle (unique ID)
-entity.geometry()        // JTS Geometry (Point/LineString/Polygon etc.)
-entity.getProperties()   // Map<String, Object> — color, text, feature code, etc.
+entity.getHandle()       // DXF unique ID
+entity.geometry()        // JTS Geometry
+entity.getProperties()   // Map<String, Object>
 ```
 
-Common property keys:
+Common property keys (`EntityProperty.*`):
 
 | Key | Type | Description |
 |---|---|---|
-| `colorRgb` | `int[3]` | RGB color (True Color > ACI > BYLAYER inheritance) |
-| `colorAci` | `Integer` | ACI color number (only present when explicitly set) |
-| `text` | `String` | Cleaned text content for TEXT / MTEXT |
-| `elevation` | `Double` | Elevation (Z) for LWPOLYLINE / POINT |
-| `featureCode` | `String` | Feature code from CASS / EPS XDATA |
-| `featureType` | `String` | Feature name from GB/T 20257 (e.g. "普通房屋") |
-| `featureCategory` | `String` | Feature category (e.g. "建筑") |
-| `blockName` | `String` | Block name referenced by INSERT |
-| `xdata` | `Map` | Raw XDATA (all app names) |
-| `dimensionValue` | `Double` | DIMENSION measured value (code 42, v1.3.0) |
-| `dimPoint1` / `dimPoint2` | `double[2]` | DIMENSION definition points (v1.3.0) |
-| `controlPoints` | `List<double[]>` | SPLINE control points (v1.3.0) |
-
----
-
-## DXF Output (Write)
-
-### Quick Write
-
-```java
-import com.nanodxf.output.DXFWriter;
-import com.nanodxf.output.DXFWriteConfig;
-import com.nanodxf.model.DXFVersion;
-
-List<CADEntity> entities = List.of(
-    CADEntity.builder(CADEntity.Types.LINE)
-        .layer("Road")
-        .geometry(GF.createLineString(new Coordinate[]{
-            new Coordinate(0, 0), new Coordinate(100, 0)}))
-        .property(EntityProperty.COLOR_ACI, AciColor.WHITE)
-        .build()
-);
-
-// R2007 + GBK (recommended for GstarCAD / AutoCAD)
-DXFWriteConfig config = DXFWriteConfig.builder()
-    .version(DXFVersion.R2007)
-    .encoding("GBK")               // required when layer names contain Chinese characters
-    .coordinateDecimalPlaces(4)
-    .build();
-
-new DXFWriter(config).write(entities, Paths.get("output.dxf"));
-```
-
-### Write ARC / CIRCLE / HATCH / INSERT / ELLIPSE / SOLID / 3DFACE / SPLINE
-
-```java
-// ARC: center Point + radius/startAngle/endAngle properties
-entities.add(CADEntity.builder(CADEntity.Types.ARC)
-    .layer("Arc")
-    .geometry(GF.createPoint(new Coordinate(50, 50)))
-    .property(EntityProperty.RADIUS,      25.0)
-    .property(EntityProperty.START_ANGLE, 0.0)
-    .property(EntityProperty.END_ANGLE,   270.0)
-    .build());
-
-// CIRCLE: center Point + radius property
-entities.add(CADEntity.builder(CADEntity.Types.CIRCLE)
-    .layer("Circle")
-    .geometry(GF.createPoint(new Coordinate(150, 50)))
-    .property(EntityProperty.RADIUS, 30.0)
-    .build());
-
-// HATCH SOLID: Polygon geometry (holes supported)
-entities.add(CADEntity.builder(CADEntity.Types.HATCH)
-    .layer("Fill")
-    .geometry(polygon)
-    .property(EntityProperty.COLOR_ACI, AciColor.GREEN)
-    .build());
-
-// Block definition + INSERT
-CADBlock symbol = new CADBlock("ARROW");
-symbol.setInsertionPoint(0, 0, 0);
-symbol.addEntity(CADEntity.builder(CADEntity.Types.LINE)
-    .layer("0").geometry(lineGeom).build());
-entities.add(CADEntity.builder(CADEntity.Types.INSERT)
-    .layer("Symbol")
-    .geometry(GF.createPoint(new Coordinate(100, 100)))
-    .property(EntityProperty.BLOCK_NAME, "ARROW")
-    .property(EntityProperty.SCALE_X, 2.0)
-    .build());
-new DXFWriter(config).write(List.of(symbol), entities, Paths.get("output.dxf"));
-
-// ELLIPSE: center Point + major axis vector + axis ratio (v1.3.0)
-entities.add(CADEntity.builder(CADEntity.Types.ELLIPSE)
-    .layer("Ellipse")
-    .geometry(GF.createPoint(new Coordinate(200, 100)))
-    .property(EntityProperty.MAJOR_AXIS_X, 50.0)  // major axis endpoint X (relative to center)
-    .property(EntityProperty.MAJOR_AXIS_Y,  0.0)
-    .property(EntityProperty.AXIS_RATIO,    0.5)  // minor/major ratio
-    .property(EntityProperty.START_ANGLE,   0.0)  // start parameter (radians)
-    .property(EntityProperty.END_ANGLE,     2 * Math.PI)
-    .build());
-
-// SOLID: 4-vertex Polygon (v1.3.0)
-entities.add(CADEntity.builder(CADEntity.Types.SOLID)
-    .layer("Fill")
-    .geometry(solidPolygon)   // first 4 vertices of exterior ring used
-    .build());
-
-// SPLINE: control points required for DXF SPLINE output; otherwise falls back to LWPOLYLINE (v1.3.0)
-List<double[]> ctrlPts = List.of(
-    new double[]{0,0,0}, new double[]{10,20,0},
-    new double[]{30,15,0}, new double[]{40,0,0});
-entities.add(CADEntity.builder(CADEntity.Types.SPLINE)
-    .layer("Spline")
-    .geometry(GF.createLineString(/* discretized coords */))
-    .property(EntityProperty.CONTROL_POINTS, ctrlPts)  // >= 4 points required
-    .build());
-```
-
-### DXFWriteConfig Parameters
-
-| Parameter | Default | Description |
-|---|---|---|
-| `version` | `R2007` | Output version (`R12` or `R2007`) |
-| `encoding` | auto | R2007+ defaults to UTF-8; others default to GBK. Specify explicitly when layer names contain non-ASCII characters. |
-| `coordinateDecimalPlaces` | `4` | Coordinate decimal places (0~15) |
-
-### Supported Entity Types (Write)
-
-| Type (`CADEntity.Types.*`) | Input geometry | Output entity |
-|---|---|---|
-| `LINE` | `LineString` (2 points) | LINE |
-| `LWPOLYLINE` | `LineString` (multi-point) / `LinearRing` | LWPOLYLINE |
-| `LWPOLYLINE` | `Polygon` | exterior ring + each hole as LWPOLYLINE |
-| `POINT` | `Point` | POINT |
-| `TEXT` | `Point` | TEXT (requires `text` property) |
-| `MTEXT` | `Point` | MTEXT (requires `text` property) |
-| `ARC` | `Point` (center) | ARC (requires `radius`/`startAngle`/`endAngle`) |
-| `CIRCLE` | `Point` (center) | CIRCLE (requires `radius`) |
-| `HATCH` | `Polygon`/`MultiPolygon` | HATCH (SOLID fill, holes supported) |
-| `INSERT` | `Point` (insertion) | INSERT (requires `blockName`) |
-| `ELLIPSE` | `Point` (center) | ELLIPSE (R2007) / 72-segment POLYLINE approx (R12, v1.3.1) |
-| `SOLID` | `Polygon` / `LinearRing` (3~4 vertices) | SOLID (v1.3.0) |
-| `FACE3D` | `LinearRing` / `Polygon` (3~4 vertices) | 3DFACE (v1.3.0) |
-| `SPLINE` | `LineString` + `controlPoints` property | SPLINE (R2007) / POLYLINE (R12, v1.3.1) |
-| any | `GeometryCollection` | recursively expanded |
-
-### Supported Write Properties
-
-| Key | Type | Description |
-|---|---|---|
-| `colorAci` | `Integer` | ACI color number (also sets layer color) |
-| `colorRgb` | `int[3]` | True Color (R2004+ only, code 420) |
-| `text` | `String` | TEXT / MTEXT content |
-| `height` | `Double` | Text height (default 2.5) |
-| `rotation` | `Double` | Text rotation angle (degrees, default 0) |
-| `style` | `String` | TEXT style name (default "Standard") |
-| `radius` | `Double` | ARC / CIRCLE radius |
-| `startAngle` | `Double` | ARC start angle (degrees) / ELLIPSE start parameter (radians) |
-| `endAngle` | `Double` | ARC end angle (degrees) / ELLIPSE end parameter (radians) |
-| `hatchPattern` | `String` | HATCH pattern name (default `"SOLID"`) |
-| `blockName` | `String` | INSERT block name reference |
-| `scaleX`/`scaleY`/`scaleZ` | `Double` | INSERT scale factors (default 1.0) |
-| `lineType` | `String` | Layer linetype name (default `"Continuous"`) |
-| `lineWeight` | `Integer` | Layer lineweight code (default -3=ByLayer) |
-| `xdata` | `Map` | XDATA write-through (preserves feature codes) |
-| `majorAxisX`/`majorAxisY` | `Double` | ELLIPSE major axis endpoint vector (v1.3.0) |
-| `axisRatio` | `Double` | ELLIPSE minor/major axis ratio (v1.3.0) |
-| `controlPoints` | `List<double[]>` | SPLINE control points (v1.3.0) |
-
-### Format Version Comparison
-
-| | R12 | R2007 |
-|---|---|---|
-| Subclass markers (`100 AcDbXxx`) | ✗ | ✅ |
-| Owner handle (`330`) | ✗ | ✅ |
-| BLOCKS / OBJECTS section | ✗ | ✅ |
-| True Color (code 420) | ✗ | ✅ (R2004+) |
-| GstarCAD compatible | ✅ | ✅ |
-| AutoCAD 2020+ compatible | ✅ | ✅ |
-| QGIS / LibreCAD compatible | ✅ | ✅ |
-
----
-
-## Shapefile Output
-
-```java
-ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
-    .crs("EPSG:4490")           // PRJ WKT: built-in for EPSG:4326/4490; comment fallback for others
-    .encoding("GBK")            // DBF charset (GBK for Chinese GIS tools)
-    .coordinateDecimalPlaces(4) // ELEVATION field decimal places (also controls DBF field width)
-    .build();
-
-new ShapefileWriter(cfg).write(entities, Paths.get("output.shp"));
-// Outputs: output.shp (geometry) + output.shx (index) + output.dbf (attributes) + output.prj (CRS)
-```
-
-**Geometry type mapping** (dominant type wins for mixed collections):
-
-| JTS Geometry | Shapefile Type |
-|---|---|
-| `Point` | POINT (1) |
-| `LineString` / `MultiLineString` / `LinearRing` | POLYLINE (3) |
-| `Polygon` / `MultiPolygon` | POLYGON (5) |
-| No geometry (empty list or all-null) | NULL (0) |
-
-**.prj CRS support** — priority order:
-
-| `crs` value | PRJ content |
-|---|---|
-| Starts with `GEOGCS[` / `PROJCS[` / `COMPD_CS[` | Written directly (user-supplied WKT) |
-| `EPSG:4326` (WGS 84) | Built-in full WKT |
-| `EPSG:4490` (CGCS2000) | Built-in full WKT |
-| Any other code | Comment line `# CRS: ...` (human-readable, not parsed by GIS tools) |
-
-**DBF attribute fields**: `LAYER`(C64) · `ETYPE`(C16) · `TEXT`(C254) · `FEAT_CODE`(C32) · `FEAT_TYPE`(C64) · `COLOR`(N4) · `ELEVATION`(N{w}.{dp}), where `w` and `dp` are controlled by `coordinateDecimalPlaces`
-
----
-
-## Entity Type Constants
-
-`CADEntity.Types` provides string constants for all DXF entity types, eliminating magic strings:
-
-```java
-// Parsing side
-if (CADEntity.Types.LINE.equals(entity.getType())) { ... }
-
-// Writing side
-CADEntity.builder(CADEntity.Types.LWPOLYLINE).layer("Road").geometry(ring).build();
-```
-
-Constants: `LINE` / `ARC` / `CIRCLE` / `ELLIPSE` / `POINT` / `LWPOLYLINE` / `POLYLINE` / `VERTEX` / `SPLINE` / `TEXT` / `MTEXT` / `ATTRIB` / `HATCH` / `SOLID` / `FACE3D` (value `"3DFACE"`) / `INSERT` / `BLOCK` / `ENDBLK` / `SEQEND` / `DIMENSION` / `LEADER` / `VIEWPORT`
-
-### Other Constant Classes
-
-| Class | Purpose | Typical constants |
-|---|---|---|
-| `AciColor` | ACI color codes | `RED=1` / `WHITE=7` / `BYLAYER=256` / `ORANGE=30` |
-| `EntityProperty` | `getProperties()` key strings | `COLOR_ACI` / `TEXT` / `ELEVATION` / `FEATURE_CODE` |
-| `InsUnit` | `$INSUNITS` unit codes | `METERS=6` / `MILLIMETERS=4` / `FEET=2` |
-| `output.LineTypeName` | Standard linetype names | `CONTINUOUS` / `DASHED` / `CENTER` / `HIDDEN` |
-
-```java
-// EntityProperty eliminates magic string keys
-String text = (String) entity.getProperties().get(EntityProperty.TEXT);
-Double elev = (Double) entity.getProperties().get(EntityProperty.ELEVATION);
-
-// InsUnit conversion
-double meters = InsUnit.toMeters(coord, result.getMetadata().getInsUnits());
-```
+| `colorRgb` | `int[3]` | RGB color (True Color > ACI > BYLAYER chain) |
+| `colorAci` | `Integer` | ACI color number |
+| `text` | `String` | Cleaned TEXT / MTEXT content |
+| `elevation` | `Double` | Elevation (Z) from LWPOLYLINE / POINT code 38 |
+| `featureCode` | `String` | CASS / EPS XDATA feature code |
+| `featureType` | `String` | GB/T 20257 feature name |
 
 ---
 
 ## Supported DXF Versions
 
-### Parsing (Read)
-
-| Version string | AutoCAD version | Status |
+| Version string | AutoCAD | Status |
 |---|---|---|
 | AC1009 | R12 | ✅ |
 | AC1015 | R2000 | ✅ |
@@ -401,23 +315,16 @@ double meters = InsUnit.toMeters(coord, result.getMetadata().getInsUnits());
 | AC1021 | R2007 | ✅ |
 | AC1024+ | R2010~R2018 | ✅ |
 
-### Writing (Generate)
-
-| Version | Format | Recommended for |
-|---|---|---|
-| R12 (AC1009) | Minimal, no subclass markers | Cross-software compatibility, smallest file size |
-| R2007 (AC1021) | Full format, GstarCAD verified | Chinese domestic CAD software (GstarCAD, ZWCAD, etc.) |
-
 ---
 
 ## Dependencies
 
 | Dependency | Version | Purpose |
 |---|---|---|
-| `org.locationtech.jts:jts-core` | 1.19.0 | JTS geometry library |
+| `org.locationtech.jts:jts-core` | 1.19.0 | JTS geometry (includes `DelaunayTriangulationBuilder`) |
 | `com.googlecode.juniversalchardet:juniversalchardet` | 1.0.3 | Encoding auto-detection |
 
-No other runtime dependencies. Requires Java 17+.
+No other runtime dependencies. Requires **Java 17+**.
 
 ---
 

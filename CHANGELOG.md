@@ -5,6 +5,86 @@
 
 ---
 
+## [1.7.0] - 2026-05-29
+
+### 新增
+
+**方向 A — 拓扑修复 API**（`com.nanodxf.topology`）
+
+- `TopologyFixer`：`fix(entities)` / `fix(entities, config)` 静态方法，按顺序执行三项修复。
+- `TopologyFixConfig`（Builder 模式）：`rules()`（仅支持三条可修复规则）、`snapTolerance()`（默认 0.001）、`maxFixes()`（默认 10000）。
+- `TopologyFixResult`（不可变）：`entities()`、`fixedByRule()`（EnumMap）、`hasChanges()`、`summary()`、`fixMs()`。
+- 三条修复规则：
+  - `DUPLICATE_ENTITY`：EntityIndex `equalsExact` 去重，O(n log n)。
+  - `ZERO_LENGTH`：`removeIf` 过滤零长线、零面积多边形，O(n)。
+  - `DANGLING_ENDPOINT`：STRtree 近邻查询，将近邻端点对 snap 到中点，重建 LineString。
+
+**方向 B — 多段线→多边形重建**（`com.nanodxf.geometry`）
+
+- `PolygonBuilder`：将 LinearRing 实体转为真正的 Polygon，自动识别孔洞。
+  - `build(entities)` — JTS `Polygonizer` 孔洞检测（退化为 `buildSimple` 兜底）。
+  - `buildSimple(entities)` — 直接转换，无孔洞检测，速度更快。
+  - 输出实体保留原图层、handle、properties，类型改为 `"POLYGON"`。
+
+**方向 C — 几何简化**（`com.nanodxf.geometry`）
+
+- `GeomSimplifier`：对实体列表做顶点抽稀，减少点数。
+  - `simplify(entities, tolerance)` — 默认 `TOPOLOGY_PRESERVING`。
+  - `simplify(entities, tolerance, mode)` — 显式指定算法。
+  - `simplifyContours(ContourSet, tolerance)` — 返回新 `ContourSet`，退化等高线自动丢弃。
+- `SimplifyMode` 枚举：`TOPOLOGY_PRESERVING`（默认，闭合环安全）/ `DOUGLAS_PEUCKER`（开放线，速度更快）。
+
+**方向 D — 图层统计量算**（新包 `com.nanodxf.stat`）
+
+- `LayerStats`：`compute(entities)` / `compute(entities, metadata)` 按图层统计，结果按实体数量降序排列。
+  - 传入 `DrawingMetadata` 时自动换算长度（→ 米）和面积（→ 平方米）。
+  - `summary(stats)` 格式化文本表格。
+- `LayerStatRow`（不可变）：`getLayer()`、`getCount()`、`getTotalLength()`、`getTotalArea()`、`getTypeBreakdown()`、`toTableRow()`。
+
+**方向 E — 点云 CSV 输出**（`com.nanodxf.output`）
+
+- `CsvWriter`：`write(entities, path)` / `write(entities, path, config)` / `write(entities, writer, config)`。
+  - 几何质心作为坐标（Point 直接取坐标，其他取 `getCentroid()`）；几何为 null 的实体跳过。
+  - CSV 引号转义（RFC 4180）。
+- `CsvWriteConfig`（Builder 模式）：`fields()`、`delimiter()`、`writeHeader()`、`charset()`、`noDataValue()`。
+- `CsvField` 枚举：`X`, `Y`, `Z`, `HANDLE`, `LAYER`, `TYPE`, `ELEVATION`, `FEATURE_CODE`, `COLOR`。
+
+**方向 F — 等高线→DEM + ASCII Grid 输出**（新包 `com.nanodxf.dem`）
+
+- `DemBuilder`：`build(contourSet, cellSize)` / `build(contourSet, cellSize, noDataValue)`。
+  - 从等高线顶点采样 → JTS `DelaunayTriangulationBuilder` 建 TIN → 重心插值。
+  - 格点在 TIN 外时标记 NODATA。
+- `DemGrid`（不可变）：`get(row, col)`、`validCount()`，数据布局行 0 = 最北行。
+- `AscGridWriter`：`write(dem, path)` / `write(dem, writer)`，输出标准 ESRI ASCII Grid（`.asc`）格式。
+
+**方向 G — 坡度/坡向分析**（`com.nanodxf.dem`）
+
+- `SlopeAnalyzer`：`analyze(dem)` 对整个 DEM 格网计算坡度和坡向。
+  - 算法：Horn's method（3×3 邻域加权有限差分）。
+  - 坡度：[0°, 90°]；边界格点用中心值填充退化处理。
+- `SlopeGrid`：`getSlope(row, col)`（度）、`getAspect(row, col)`（度，正北=0°，顺时针；平地=-1）、`meanSlope()`。
+
+**方向 H — 图幅接边检查**（新包 `com.nanodxf.sheet`）
+
+- `SheetEdgeMatcher`：线状要素端点接边检查，STRtree O(n log n) 查询。
+  - `matchVertical(A, B, edgeX, bandWidth, gapTolerance)` — 竖直接边线。
+  - `matchHorizontal(A, B, edgeY, bandWidth, gapTolerance)` — 水平接边线。
+  - `match(A, B, band, gapTolerance)` — 任意接边带（`Envelope`）。
+- `SheetEdgeReport`（不可变）：`getGaps()`、`isClean()`、`summary()`。
+- `EdgeGap`：裂缝记录，含两侧实体引用和端点距离。
+
+### 修复
+
+- `TopologyChecker.checkDanglingEndpoints`：修复 `DANGLING_ENDPOINT` 规则从不触发的 Bug（`n != owner` 比较引用永远为 true）；改用 EP_index 伪 handle 做同实体判别。
+- `ContourSet.byElevation()`：返回类型改为 `NavigableMap`，实际返回 `Collections.unmodifiableNavigableMap`（原返回可变 TreeMap 与 Javadoc 不符）。
+- `ElevationAnnotation.parseElevation`：改为 `public static`（原包私有导致包外调用编译失败）。
+
+### 依赖变更
+
+无新增依赖。全部功能复用现有 JTS 1.19.0（`DelaunayTriangulationBuilder` 属 jts-core 内置类）。
+
+---
+
 ## [1.6.0] - 2026-05-28
 
 ### 新增

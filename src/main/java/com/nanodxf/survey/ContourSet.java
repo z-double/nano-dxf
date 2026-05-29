@@ -14,7 +14,7 @@ public class ContourSet {
 
     private final TreeMap<Double, List<CADEntity>> map;
 
-    ContourSet(TreeMap<Double, List<CADEntity>> map) {
+    public ContourSet(TreeMap<Double, List<CADEntity>> map) {
         this.map = map;
     }
 

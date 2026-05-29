@@ -21,6 +21,14 @@
 - **流式解析 API**：`parseStream(Path)` 两阶段惰性流，大文件低内存占用
 - **测绘专项 API**：`ContourHelper`（等高线分组/验证）、`ElevationAnnotation`（高程点注记配对）（v1.6.0）
 - **拓扑检查 API**：`TopologyChecker` 5 条规则（重复实体/自相交/零长度/悬挂端点/等高线交叉），零额外依赖（v1.6.0）
+- **拓扑修复 API**：`TopologyFixer` 自动去重/去零长/端点吸附（v1.7.0）
+- **多边形重建**：`PolygonBuilder` LinearRing→Polygon，JTS Polygonizer 孔洞识别（v1.7.0）
+- **几何简化**：`GeomSimplifier` 顶点抽稀（拓扑保持 / Douglas-Peucker）（v1.7.0）
+- **图层统计**：`LayerStats` 按图层汇总实体数/总长/总面积，支持单位换算（v1.7.0）
+- **点云 CSV 输出**：`CsvWriter` 灵活字段配置，RFC 4180 引号转义（v1.7.0）
+- **DEM 构建 + ASCII Grid 输出**：`DemBuilder` Delaunay TIN 插值，`AscGridWriter` ESRI .asc 格式（v1.7.0）
+- **坡度/坡向分析**：`SlopeAnalyzer` Horn's method 3×3 邻域有限差分（v1.7.0）
+- **图幅接边检查**：`SheetEdgeMatcher` 线状要素端点竖直/水平/任意方向接边检查（v1.7.0）
 
 ---
 
@@ -32,7 +40,7 @@
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.6.0</version>
+    <version>1.7.0</version>
 </dependency>
 ```
 
