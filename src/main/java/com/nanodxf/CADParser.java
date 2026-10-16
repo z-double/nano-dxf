@@ -187,7 +187,10 @@ public class CADParser {
 
         ParseResult.Builder builder = ParseResult.builder()
                 .metadata(ctx.metadata)
-                .stats(new ParseStats(elapsed, entityCount, errorCount, infoCount));
+                .stats(new ParseStats(elapsed, entityCount, errorCount, infoCount))
+                .layers(ctx.layers)
+                .textStyles(ctx.textStyles)
+                .lineTypes(ctx.lineTypes);
 
         ctx.entities.forEach(builder::addEntity);
         ctx.errors.forEach(builder::addError);

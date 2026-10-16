@@ -13,6 +13,8 @@ import org.locationtech.jts.geom.LineString;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * MULTILEADER（多重引线）实体解析器（AC1021+）。
@@ -37,6 +39,8 @@ import java.util.List;
  * 若只有 1 个顶点则返回空（不产生实体）。
  */
 public class MultiLeaderHandler implements EntityHandler {
+
+    private static final Logger LOG = Logger.getLogger(MultiLeaderHandler.class.getName());
 
     @Override
     public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
@@ -77,7 +81,9 @@ public class MultiLeaderHandler implements EntityHandler {
                         Double.parseDouble(ys.get(i).trim()),
                         0.0
                     });
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException e) {
+                    LOG.log(Level.FINE, "MULTILEADER 坐标解析失败: {0}", e.getMessage());
+                }
             }
         }
 

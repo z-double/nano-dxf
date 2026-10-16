@@ -363,7 +363,7 @@ class V150Test extends NanoDxfTestBase {
                 }
             }
         } finally {
-            //Files.deleteIfExists(tmp);
+            Files.deleteIfExists(tmp);
         }
     }
 
@@ -399,7 +399,7 @@ class V150Test extends NanoDxfTestBase {
                 }
             }
         } finally {
-           // Files.deleteIfExists(tmp);
+            Files.deleteIfExists(tmp);
         }
     }
 

@@ -96,7 +96,7 @@ public final class GeomSimplifier {
             } else {
                 return TopologyPreservingSimplifier.simplify(g, tolerance);
             }
-        } catch (Exception ex) {
+        } catch (IllegalArgumentException | TopologyException ex) {
             return g; // 简化失败时返回原始几何
         }
     }

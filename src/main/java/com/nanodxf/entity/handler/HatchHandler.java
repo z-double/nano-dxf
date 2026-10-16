@@ -29,7 +29,7 @@ import java.util.List;
  *   <li>类型 1（直线）：code 10/20（起点）、11/21（终点）</li>
  *   <li>类型 2（圆弧）：code 10/20（圆心）、40（半径）、50（起角）、51（终角）、73（CCW）</li>
  *   <li>类型 3（椭圆弧）：code 10/20（圆心）、11/21（长轴端点向量）、40（短长轴比）、50/51（起终角度）、73（CCW）</li>
- *   <li>类型 4（样条）：TODO</li>
+ *   <li>类型 4（样条）：code 94（阶数）、73（有理）、74（周期）、95（控制点数）、96（节点数）、40（节点值）、41（权重）、10/20（控制点）</li>
  * </ul>
  *
  * <p>外/内边界判断：第一条路径为外边界（shell），其余为内边界（hole）。
@@ -126,7 +126,7 @@ public class HatchHandler implements EntityHandler {
             case 1 -> readLineEdge(pairs, pos, coords);
             case 2 -> readArcEdge(pairs, pos, coords, tolerance);
             case 3 -> readEllipseArcEdge(pairs, pos, coords, tolerance);
-            // 4=样条: TODO
+            case 4 -> readSplineEdge(pairs, pos, coords, tolerance);
         }
     }
 
@@ -229,6 +229,69 @@ public class HatchHandler implements EntityHandler {
             double y  = cy + a * ct * sinT + b * st * cosT;
             Coordinate c = new Coordinate(x, y);
             if (coords.isEmpty() || i > 0) coords.add(c);
+        }
+    }
+
+    /**
+     * 样条边段（type 4）。
+     * code 94=阶数，73=有理标志，74=周期标志，95=控制点数，96=节点数，
+     * 40=节点值（重复），41=权重（重复），10/20=控制点坐标（重复）。
+     */
+    private void readSplineEdge(List<GroupCodePair> pairs, int[] pos,
+                                 List<Coordinate> coords, double tolerance) {
+        int degree = 3;
+        int numCtrlPts = 0;
+        List<Double> knotList = new ArrayList<>();
+        List<double[]> ctrlPts = new ArrayList<>();
+        double curX = 0, curY = 0;
+        boolean hasX = false;
+
+        while (pos[0] < pairs.size()) {
+            GroupCodePair pair = pairs.get(pos[0]);
+            if (isEdgeBoundary(pair.code())) break;
+            pos[0]++;
+            switch (pair.code()) {
+                case 94 -> degree = pair.asInt();
+                case 73 -> {} // rational flag — 暂按非有理处理
+                case 74 -> {} // periodic flag
+                case 95 -> numCtrlPts = pair.asInt();
+                case 96 -> {} // 节点数 — 由 knotList.size() 隐式确定
+                case 40 -> knotList.add(pair.asDouble());
+                case 41 -> {} // 权重 — 暂按非有理样条处理，跳过
+                case 10 -> {
+                    if (hasX) {
+                        ctrlPts.add(new double[]{curX, curY});
+                        curY = 0;
+                    }
+                    curX = pair.asDouble();
+                    hasX = true;
+                }
+                case 20 -> {
+                    curY = pair.asDouble();
+                    if (hasX) {
+                        ctrlPts.add(new double[]{curX, curY});
+                        hasX = false;
+                    }
+                }
+                case 97 -> {} // boundary indices — 跳过
+            }
+        }
+        // 最后一个控制点
+        if (hasX && ctrlPts.size() < numCtrlPts) {
+            ctrlPts.add(new double[]{curX, curY});
+        }
+
+        if (ctrlPts.isEmpty() || knotList.isEmpty()) return;
+
+        double[] knots = knotList.stream().mapToDouble(Double::doubleValue).toArray();
+        double[][] pts = ctrlPts.toArray(new double[0][]);
+
+        // 若有权重且为有理样条，将权重乘入控制点齐次坐标（简化处理：忽略权重，按非有理）
+        List<Coordinate> splinePts = Discretizer.spline(degree, knots, pts, tolerance);
+        if (splinePts.isEmpty()) return;
+
+        for (int i = 0; i < splinePts.size(); i++) {
+            if (coords.isEmpty() || i > 0) coords.add(splinePts.get(i));
         }
     }
 

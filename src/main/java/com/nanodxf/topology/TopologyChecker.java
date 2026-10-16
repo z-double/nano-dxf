@@ -269,7 +269,7 @@ public final class TopologyChecker {
                     reported.add(key);
                     Geometry intersection;
                     try { intersection = g.intersection(og); }
-                    catch (Exception ex) { intersection = g.getCentroid(); }
+                    catch (TopologyException | IllegalArgumentException ex) { intersection = g.getCentroid(); }
 
                     errors.add(new TopologyError(
                             TopologyRule.CONTOUR_CROSSING, e, other,

@@ -11,6 +11,8 @@ import org.locationtech.jts.geom.LineString;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * LEADER 实体解析器（引线，用于图纸标注引出线）。
@@ -29,6 +31,8 @@ import java.util.List;
  * 顶点顺序从箭头端（code 10/20/30 首次出现）到文字端（最后出现）。
  */
 public class LeaderHandler implements EntityHandler {
+
+    private static final Logger LOG = Logger.getLogger(LeaderHandler.class.getName());
 
     @Override
     public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
@@ -65,7 +69,9 @@ public class LeaderHandler implements EntityHandler {
                         Double.parseDouble(ys.get(i).trim()),
                         0.0
                     });
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException e) {
+                    LOG.log(Level.FINE, "LEADER 坐标解析失败: {0}", e.getMessage());
+                }
             }
         }
 

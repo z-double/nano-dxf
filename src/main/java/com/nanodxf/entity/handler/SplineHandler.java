@@ -13,6 +13,8 @@ import org.locationtech.jts.geom.LineString;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * SPLINE 实体解析器（B 样条曲线）。
@@ -34,6 +36,8 @@ import java.util.List;
  */
 public class SplineHandler implements EntityHandler {
 
+    private static final Logger LOG = Logger.getLogger(SplineHandler.class.getName());
+
     @Override
     public List<CADEntity> handle(EntityBuffer buffer, DXFContext ctx) {
         String handle = buffer.getString(5, "");
@@ -44,7 +48,10 @@ public class SplineHandler implements EntityHandler {
         double[] knots = buffer.all(40).stream()
                 .mapToDouble(v -> {
                     try { return Double.parseDouble(v.trim()); }
-                    catch (NumberFormatException e) { return 0.0; }
+                    catch (NumberFormatException e) {
+                        LOG.log(Level.FINE, "SPLINE 节点值解析失败: {0}", e.getMessage());
+                        return 0.0;
+                    }
                 })
                 .toArray();
 
@@ -103,7 +110,9 @@ public class SplineHandler implements EntityHandler {
                         Double.parseDouble(ys.get(i).trim()),
                         0.0
                     });
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException e) {
+                    LOG.log(Level.FINE, "SPLINE 控制点坐标解析失败: {0}", e.getMessage());
+                }
             }
         }
         return pts;
