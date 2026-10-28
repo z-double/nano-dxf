@@ -6,6 +6,7 @@ import com.nanodxf.entity.EntityBuffer;
 import com.nanodxf.entity.EntityHandler;
 import com.nanodxf.geometry.Discretizer;
 import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.geometry.GeometryConstants;
 import com.nanodxf.geometry.GeometryValidator;
 import com.nanodxf.model.DXFContext;
 import org.locationtech.jts.geom.*;
@@ -207,7 +208,7 @@ public class HatchHandler implements EntityHandler {
 
         double a = Math.sqrt(mx * mx + my * my);
         double b = a * ratio;
-        if (a < 1e-12) return;
+        if (a < GeometryConstants.EPS) return;
 
         double theta = Math.atan2(my, mx);
         double cosT  = Math.cos(theta), sinT = Math.sin(theta);

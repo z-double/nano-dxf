@@ -6,6 +6,7 @@ import com.nanodxf.entity.EntityBuffer;
 import com.nanodxf.entity.EntityHandler;
 import com.nanodxf.geometry.Discretizer;
 import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.geometry.GeometryConstants;
 import com.nanodxf.geometry.OcsTransformer;
 import com.nanodxf.model.DXFContext;
 import org.locationtech.jts.geom.Coordinate;
@@ -143,7 +144,7 @@ public class LWPolylineHandler implements EntityHandler {
      */
     private void appendSegment(List<Coordinate> coords, Coordinate p1, Coordinate p2,
                                 double bulge, double elevation, double tolerance) {
-        if (Math.abs(bulge) > 1e-10) {
+        if (Math.abs(bulge) > GeometryConstants.BULGE_EPS) {
             // 圆弧段：离散化后追加（跳过首点，它已在 coords 中）
             List<Coordinate> arcPts = Discretizer.bulge(p1, p2, bulge, tolerance);
             for (int j = 1; j < arcPts.size(); j++) {

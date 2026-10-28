@@ -19,7 +19,7 @@ import java.io.IOException;
  * <ul>
  *   <li>LAYER 表  - 图层名、颜色号（ACI）、可见性、线型名</li>
  *   <li>STYLE 表  - 文字样式名、字体文件、字高、宽度系数</li>
- *   <li>LTYPE 表  - 线型名、描述（暂不解析线型图案数据）</li>
+ *   <li>LTYPE 表  - 线型名、描述、图案总长（code 40）与段划序列（code 49）</li>
  * </ul>
  *
  * <p>TODO Phase 1：完整实现各子表解析。
@@ -102,6 +102,8 @@ public class TablesParser {
 
     private void parseLtype(DXFReader reader, DXFContext ctx) throws IOException {
         String name = null; String desc = null;
+        double patternLength = 0;
+        LineTypeDef lt = null;
         while (reader.hasNext()) {
             GroupCodePair pair = reader.next();
             if (pair == null || pair.code() == 0) {
@@ -109,13 +111,15 @@ public class TablesParser {
                 break;
             }
             switch (pair.code()) {
-                case 2 -> name = pair.value();
-                case 3 -> desc = pair.value();
+                case 2  -> { name = pair.value(); lt = new LineTypeDef(name); }
+                case 3  -> desc = pair.value();
+                case 40 -> patternLength = pair.asDouble();
+                case 49 -> { if (lt != null) lt.addPatternElement(pair.asDouble()); }
             }
         }
-        if (name != null) {
-            LineTypeDef lt = new LineTypeDef(name);
+        if (lt != null) {
             lt.setDescription(desc);
+            lt.setPatternLength(patternLength);
             ctx.lineTypes.put(name, lt);
         }
     }

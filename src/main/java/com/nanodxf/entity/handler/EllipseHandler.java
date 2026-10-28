@@ -4,6 +4,7 @@ import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
 import com.nanodxf.entity.EntityHandler;
 import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.geometry.GeometryConstants;
 import com.nanodxf.model.DXFContext;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
@@ -57,11 +58,11 @@ public class EllipseHandler implements EntityHandler {
         double theta = Math.atan2(my, mx);
         double b     = a * ratio;
 
-        if (a < 1e-12) return List.of();
+        if (a < GeometryConstants.EPS) return List.of();
 
         double span = endParam - startParam;
         if (span < 0) span += 2 * Math.PI;
-        if (span < 1e-9) return List.of();
+        if (span < GeometryConstants.ANGLE_EPS) return List.of();
 
         // 采样点数：以最大轴的弦高误差为基准
         double rMax      = Math.max(a, b);
@@ -79,7 +80,7 @@ public class EllipseHandler implements EntityHandler {
             pts.add(new Coordinate(x, y, cz));
         }
 
-        boolean isClosed = Math.abs(span - 2 * Math.PI) < 1e-6;
+        boolean isClosed = Math.abs(span - 2 * Math.PI) < GeometryConstants.SPAN_EPS;
         Geometry geom;
         if (isClosed) {
             // 强制首尾精确相同，构建 LinearRing

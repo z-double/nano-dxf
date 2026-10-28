@@ -2,6 +2,7 @@ package com.nanodxf;
 
 import com.nanodxf.model.ZStrategy;
 
+import java.nio.charset.Charset;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -11,7 +12,7 @@ import java.util.Set;
  *
  * <pre>{@code
  * ParseConfig config = ParseConfig.builder()
- *     .crs("EPSG:4545")       // 坐标参考系（如 CGCS2000 117°E 带）
+ *     .crs("EPSG:4545")       // 坐标参考系（如 CGCS2000 108°E 带）
  *     .arcTolerance(0.001)    // 弧线离散弦高误差（米）
  *     .build();
  * }</pre>
@@ -63,6 +64,12 @@ public class ParseConfig {
      */
     private final Set<String> includeTypes;
 
+    /**
+     * 强制指定文件编码。null 表示由 {@code DXFReader} 自动检测。
+     * 适用于自动检测误判的 DXF（如 GB18030 被识别为 GBK）。
+     */
+    private final Charset encoding;
+
     private ParseConfig(Builder builder) {
         this.arcTolerance = builder.arcTolerance;
         this.proximityThreshold = builder.proximityThreshold;
@@ -76,6 +83,7 @@ public class ParseConfig {
                 : Collections.unmodifiableSet(toUpperSet(builder.excludeLayers));
         this.includeTypes = builder.includeTypes == null ? null
                 : Collections.unmodifiableSet(toUpperSet(builder.includeTypes));
+        this.encoding = builder.encoding;
     }
 
     public double getArcTolerance() { return arcTolerance; }
@@ -87,6 +95,7 @@ public class ParseConfig {
     public Set<String> getIncludeLayers() { return includeLayers; }
     public Set<String> getExcludeLayers() { return excludeLayers; }
     public Set<String> getIncludeTypes()  { return includeTypes; }
+    public Charset getEncoding()          { return encoding; }
 
     /**
      * 根据当前过滤配置判断指定图层 + 类型的实体是否应被解析。
@@ -125,6 +134,7 @@ public class ParseConfig {
         private Set<String> includeLayers = null;
         private Set<String> excludeLayers = null;
         private Set<String> includeTypes  = null;
+        private Charset encoding = null;
 
         /**
          * 弧线/样条离散弦高误差（坐标单位），必须 &gt; 0，默认 0.001。
@@ -159,7 +169,7 @@ public class ParseConfig {
 
         /**
          * 坐标参考系标识，写入 GeoJSON {@code crs} 字段。
-         * 例：{@code "EPSG:4545"}（CGCS2000 117°E 3 度带）。
+         * 例：{@code "EPSG:4545"}（CGCS2000 108°E 3 度带）。
          * 不传则输出中不含 crs 字段。
          */
         public Builder crs(String crs) { this.crs = crs; return this; }
@@ -193,6 +203,21 @@ public class ParseConfig {
          */
         public Builder includeTypes(String... types) {
             this.includeTypes = new HashSet<>(Set.of(types)); return this;
+        }
+
+        /**
+         * 强制指定文件编码，覆盖自动检测。不传则由 {@code DXFReader} 自动检测。
+         * 适用于检测误判场景（如 GB18030 被识别为 GBK）。
+         */
+        public Builder encoding(Charset encoding) {
+            this.encoding = encoding; return this;
+        }
+
+        /** 强制指定文件编码（编码名称），如 {@code "GB18030"}、{@code "UTF-8"}。 */
+        public Builder encoding(String encodingName) {
+            if (encodingName == null || encodingName.isBlank())
+                throw new IllegalArgumentException("encoding 不能为空");
+            return encoding(Charset.forName(encodingName.trim()));
         }
 
         /** 构建并返回不可变的 {@link ParseConfig}，同时校验所有参数合法性。 */

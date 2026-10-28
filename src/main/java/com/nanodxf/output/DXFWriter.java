@@ -1,6 +1,7 @@
 package com.nanodxf.output;
 
 import com.nanodxf.entity.CADEntity;
+import com.nanodxf.geometry.GeometryConstants;
 import com.nanodxf.model.CADBlock;
 import com.nanodxf.model.DXFVersion;
 import com.nanodxf.xdata.XDataEntry;
@@ -287,7 +288,7 @@ public class DXFWriter {
         pair(w, 66, "1");
         pair(w, 70, closed ? "1" : "0");
         double z0 = uniformZ(coords, n);
-        if (!Double.isNaN(z0) && Math.abs(z0) > 1e-12) pair(w, 38, fmt(z0));
+        if (!Double.isNaN(z0) && Math.abs(z0) > GeometryConstants.EPS) pair(w, 38, fmt(z0));
         for (int i = 0; i < n; i++) {
             pair(w, 0, "VERTEX");
             pair(w, 8, layerOf(e));
@@ -304,7 +305,7 @@ public class DXFWriter {
         double sa = dblProp(e, "startAngle", 0.0);
         double ea = dblProp(e, "endAngle", 360.0);
         // 零长度弧（起终角相同）跳过；startAngle=0/endAngle=360 属合法整圆弧，不跳过
-        if (Math.abs(ea - sa) < 1e-9) return;
+        if (Math.abs(ea - sa) < GeometryConstants.ANGLE_EPS) return;
         pair(w, 0, "ARC");
         writeR12Common(w, e);
         pair(w, 10, fmt(center.getX())); pair(w, 20, fmt(center.getY()));
@@ -332,11 +333,11 @@ public class DXFWriter {
         pair(w, 2, blockName);
         pair(w, 10, fmt(p.getX())); pair(w, 20, fmt(p.getY())); pair(w, 30, fmtZ(p.getCoordinate().getZ()));
         double sx = dblProp(e, "scaleX", 1.0), sy = dblProp(e, "scaleY", 1.0), sz = dblProp(e, "scaleZ", 1.0);
-        if (Math.abs(sx - 1.0) > 1e-9) pair(w, 41, fmt(sx));
-        if (Math.abs(sy - 1.0) > 1e-9) pair(w, 42, fmt(sy));
-        if (Math.abs(sz - 1.0) > 1e-9) pair(w, 43, fmt(sz));
+        if (Math.abs(sx - 1.0) > GeometryConstants.ANGLE_EPS) pair(w, 41, fmt(sx));
+        if (Math.abs(sy - 1.0) > GeometryConstants.ANGLE_EPS) pair(w, 42, fmt(sy));
+        if (Math.abs(sz - 1.0) > GeometryConstants.ANGLE_EPS) pair(w, 43, fmt(sz));
         double rot = dblProp(e, "rotation", 0.0);
-        if (Math.abs(rot) > 1e-9) pair(w, 50, fmt(rot));
+        if (Math.abs(rot) > GeometryConstants.ANGLE_EPS) pair(w, 50, fmt(rot));
     }
 
     private void writeTextR12(LineWriter w, Point p, CADEntity e) throws IOException {
@@ -348,7 +349,7 @@ public class DXFWriter {
         pair(w, 40, fmt(dblProp(e, "height", 2.5)));
         pair(w, 1, text);
         double rot = dblProp(e, "rotation", 0.0);
-        if (Math.abs(rot) > 1e-9) pair(w, 50, fmt(rot));
+        if (Math.abs(rot) > GeometryConstants.ANGLE_EPS) pair(w, 50, fmt(rot));
     }
 
     private void writeMTextR12(LineWriter w, Point p, CADEntity e) throws IOException {
@@ -371,13 +372,13 @@ public class DXFWriter {
         double mx    = dblProp(e, "majorAxisX", 1.0);
         double my    = dblProp(e, "majorAxisY", 0.0);
         double ratio = dblProp(e, "axisRatio",  1.0);
-        if (Math.sqrt(mx * mx + my * my) < 1e-12 || ratio <= 0) return;
+        if (Math.sqrt(mx * mx + my * my) < GeometryConstants.EPS || ratio <= 0) return;
 
         double startParam = dblProp(e, "startAngle", 0.0);
         double endParam   = dblProp(e, "endAngle",   2 * Math.PI);
         double paramSpan  = endParam - startParam;
-        if (paramSpan < 1e-9) paramSpan = 2 * Math.PI;
-        boolean closed = Math.abs(paramSpan - 2 * Math.PI) < 1e-9;
+        if (paramSpan < GeometryConstants.ANGLE_EPS) paramSpan = 2 * Math.PI;
+        boolean closed = Math.abs(paramSpan - 2 * Math.PI) < GeometryConstants.ANGLE_EPS;
 
         double cx = center.getX(), cy = center.getY();
         int steps = 72; // 5° 精度
@@ -445,8 +446,8 @@ public class DXFWriter {
         pair(w, 72, String.valueOf(knots.length));
         pair(w, 73, String.valueOf(ctrlPts.size()));
         pair(w, 74, "0");              // no fit points
-        pair(w, 42, fmt(1e-10));       // knot tolerance
-        pair(w, 43, fmt(1e-10));       // control point tolerance
+        pair(w, 42, fmt(GeometryConstants.SPLINE_TOLERANCE));       // knot tolerance
+        pair(w, 43, fmt(GeometryConstants.SPLINE_TOLERANCE));       // control point tolerance
         for (double k : knots) pair(w, 40, fmt(k));
         for (double[] pt : ctrlPts) {
             pair(w, 10, fmt(pt[0])); pair(w, 20, fmt(pt[1]));
@@ -821,7 +822,7 @@ public class DXFWriter {
         pair(w, 70, closed ? "1" : "0");
         pair(w, 43, fmt(0.0));
         double z0 = uniformZ(coords, n);
-        if (!Double.isNaN(z0) && Math.abs(z0) > 1e-12) pair(w, 38, fmt(z0));
+        if (!Double.isNaN(z0) && Math.abs(z0) > GeometryConstants.EPS) pair(w, 38, fmt(z0));
         for (int i = 0; i < n; i++) {
             pair(w, 10, fmt(coords[i].x)); pair(w, 20, fmt(coords[i].y));
         }
@@ -833,7 +834,7 @@ public class DXFWriter {
         if (radius <= 0) return;
         double sa = dblProp(e, "startAngle", 0.0);
         double ea = dblProp(e, "endAngle", 360.0);
-        if (Math.abs(ea - sa) < 1e-9) return; // 零长度弧跳过（与 R12 路径一致）
+        if (Math.abs(ea - sa) < GeometryConstants.ANGLE_EPS) return; // 零长度弧跳过（与 R12 路径一致）
         pair(w, 0, "ARC");
         writeR2000Common(w, e, ownerBR, h);
         pair(w, 100, "AcDbCircle");
@@ -933,11 +934,11 @@ public class DXFWriter {
         pair(w, 10, fmt(p.getX())); pair(w, 20, fmt(p.getY())); pair(w, 30, fmtZ(p.getCoordinate().getZ()));
         double sx = dblProp(e, "scaleX", 1.0), sy = dblProp(e, "scaleY", 1.0), sz = dblProp(e, "scaleZ", 1.0);
         // 与 R12 路径保持一致：只写非默认值（1.0）
-        if (Math.abs(sx - 1.0) > 1e-9) pair(w, 41, fmt(sx));
-        if (Math.abs(sy - 1.0) > 1e-9) pair(w, 42, fmt(sy));
-        if (Math.abs(sz - 1.0) > 1e-9) pair(w, 43, fmt(sz));
+        if (Math.abs(sx - 1.0) > GeometryConstants.ANGLE_EPS) pair(w, 41, fmt(sx));
+        if (Math.abs(sy - 1.0) > GeometryConstants.ANGLE_EPS) pair(w, 42, fmt(sy));
+        if (Math.abs(sz - 1.0) > GeometryConstants.ANGLE_EPS) pair(w, 43, fmt(sz));
         double rot = dblProp(e, "rotation", 0.0);
-        if (Math.abs(rot) > 1e-9) pair(w, 50, fmt(rot));
+        if (Math.abs(rot) > GeometryConstants.ANGLE_EPS) pair(w, 50, fmt(rot));
     }
 
     private void writeTextR2000(LineWriter w, Point p, CADEntity e,
@@ -951,7 +952,7 @@ public class DXFWriter {
         pair(w, 40, fmt(dblProp(e, "height", 2.5)));
         pair(w, 1, text);
         double rot = dblProp(e, "rotation", 0.0);
-        if (Math.abs(rot) > 1e-9) pair(w, 50, fmt(rot));
+        if (Math.abs(rot) > GeometryConstants.ANGLE_EPS) pair(w, 50, fmt(rot));
         pair(w, 7, strPropOrDefault(e, "style", "Standard"));
         pair(w, 100, "AcDbText");
     }
@@ -972,7 +973,7 @@ public class DXFWriter {
         pair(w, 72, "5");
         pair(w, 1, text);
         double rot = dblProp(e, "rotation", 0.0);
-        if (Math.abs(rot) > 1e-9) pair(w, 50, fmt(rot));
+        if (Math.abs(rot) > GeometryConstants.ANGLE_EPS) pair(w, 50, fmt(rot));
         pair(w, 7, strPropOrDefault(e, "style", "Standard"));
     }
 
@@ -981,7 +982,7 @@ public class DXFWriter {
         double mx = dblProp(e, "majorAxisX", 1.0);
         double my = dblProp(e, "majorAxisY", 0.0);
         double ratio = dblProp(e, "axisRatio", 1.0);
-        if (Math.sqrt(mx * mx + my * my) < 1e-12 || ratio <= 0) return;
+        if (Math.sqrt(mx * mx + my * my) < GeometryConstants.EPS || ratio <= 0) return;
         pair(w, 0, "ELLIPSE");
         writeR2000Common(w, e, ownerBR, h);
         pair(w, 100, "AcDbEllipse");
@@ -1335,7 +1336,7 @@ public class DXFWriter {
         double z0 = coords[0].getZ();
         if (Double.isNaN(z0)) return Double.NaN;
         for (int i = 1; i < n; i++) {
-            if (Double.isNaN(coords[i].getZ()) || Math.abs(coords[i].getZ() - z0) > 1e-9) return Double.NaN;
+            if (Double.isNaN(coords[i].getZ()) || Math.abs(coords[i].getZ() - z0) > GeometryConstants.ANGLE_EPS) return Double.NaN;
         }
         return z0;
     }

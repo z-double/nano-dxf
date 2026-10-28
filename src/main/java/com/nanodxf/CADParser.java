@@ -58,9 +58,9 @@ public class CADParser {
         this(ParseConfig.defaults());
     }
 
-    /** 解析 DXF 文件（自动检测编码，支持 GBK / UTF-8）。 */
+    /** 解析 DXF 文件（默认自动检测编码；可通过 {@link ParseConfig#getEncoding()} 强制指定）。 */
     public ParseResult parse(Path path) throws IOException {
-        try (DXFReader reader = DXFReader.open(path)) {
+        try (DXFReader reader = DXFReader.open(path, config.getEncoding())) {
             return doParse(reader);
         }
     }
@@ -96,7 +96,7 @@ public class CADParser {
      * @throws IOException 文件无法打开或编码检测失败时抛出
      */
     public Stream<CADEntity> parseStream(Path path) throws IOException {
-        DXFReader reader = DXFReader.open(path);
+        DXFReader reader = DXFReader.open(path, config.getEncoding());
         try {
             DXFContext ctx = new DXFContext(config);
             if (config.getCrs() != null) {

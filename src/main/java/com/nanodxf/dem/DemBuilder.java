@@ -1,5 +1,6 @@
 package com.nanodxf.dem;
 
+import com.nanodxf.geometry.GeometryConstants;
 import com.nanodxf.survey.ContourSet;
 import com.nanodxf.entity.CADEntity;
 import org.locationtech.jts.geom.*;
@@ -133,7 +134,7 @@ public final class DemBuilder {
     private static double barycentricZ(double px, double py,
                                         Coordinate a, Coordinate b, Coordinate c) {
         double denom = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
-        if (Math.abs(denom) < 1e-12) return (a.z + b.z + c.z) / 3.0;
+        if (Math.abs(denom) < GeometryConstants.EPS) return (a.z + b.z + c.z) / 3.0;
         double w1 = ((b.y - c.y) * (px - c.x) + (c.x - b.x) * (py - c.y)) / denom;
         double w2 = ((c.y - a.y) * (px - c.x) + (a.x - c.x) * (py - c.y)) / denom;
         double w3 = 1.0 - w1 - w2;

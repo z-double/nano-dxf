@@ -68,7 +68,7 @@ public class Discretizer {
     public static List<Coordinate> bulge(Coordinate p1, Coordinate p2,
                                          double bulge, double tolerance) {
         double chord = p1.distance(p2);
-        if (chord < 1e-12) return List.of(new Coordinate(p2)); // 退化
+        if (chord < GeometryConstants.EPS) return List.of(new Coordinate(p2)); // 退化
 
         double angle    = 4 * Math.atan(Math.abs(bulge));
         double r        = chord / (2 * Math.sin(angle / 2));
@@ -115,7 +115,7 @@ public class Discretizer {
         // 参数域 [t_min, t_max]（取夹持节点向量的有效区间）
         double tMin = knots[degree];
         double tMax = knots[n + 1];
-        if (tMax - tMin < 1e-12) return Collections.emptyList();
+        if (tMax - tMin < GeometryConstants.EPS) return Collections.emptyList();
 
         // 根据控制多边形估算合适的采样点数
         double polyLen = 0;
@@ -170,7 +170,7 @@ public class Discretizer {
                 // 防数组越界（对于格式不完整的节点向量）
                 if (left < 0 || right >= T.length) continue;
                 double denom = T[right] - T[left];
-                double alpha = denom < 1e-12 ? 0.0 : (t - T[left]) / denom;
+                double alpha = denom < GeometryConstants.EPS ? 0.0 : (t - T[left]) / denom;
                 for (int dim = 0; dim < dims; dim++) {
                     d[j][dim] = (1.0 - alpha) * d[j - 1][dim] + alpha * d[j][dim];
                 }

@@ -5,6 +5,7 @@ import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
 import com.nanodxf.entity.EntityHandler;
 import com.nanodxf.geometry.GeometryBuilder;
+import com.nanodxf.geometry.GeometryConstants;
 import com.nanodxf.model.DXFContext;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Polygon;
@@ -45,7 +46,7 @@ public class ImageHandler implements EntityHandler {
         double vx = buffer.getDouble(12, 0), vy = buffer.getDouble(22, 1);
         double nw = buffer.getDouble(13, 0), nh = buffer.getDouble(23, 0);
 
-        if (nw <= 0 || nh <= 0 || (Math.abs(ux) + Math.abs(uy) + Math.abs(vx) + Math.abs(vy)) < 1e-12)
+        if (nw <= 0 || nh <= 0 || (Math.abs(ux) + Math.abs(uy) + Math.abs(vx) + Math.abs(vy)) < GeometryConstants.EPS)
             return List.of();
 
         // 4 corners: LL → LR → UR → UL → LL

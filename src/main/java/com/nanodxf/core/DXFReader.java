@@ -54,10 +54,17 @@ public class DXFReader implements Closeable {
      * 检测失败时记录日志并以 GBK 兜底，不抛出异常。
      */
     public static DXFReader open(Path path) throws IOException {
-        String encoding = detectEncoding(path);
+        return open(path, null);
+    }
+
+    /**
+     * 打开 DXF 文件。{@code charset} 为 null 时自动检测编码，
+     * 非 null 时强制使用指定编码（覆盖自动检测）。
+     */
+    public static DXFReader open(Path path, Charset charset) throws IOException {
+        Charset cs = charset != null ? charset : Charset.forName(detectEncoding(path));
         return new DXFReader(new BufferedReader(
-            new InputStreamReader(Files.newInputStream(path),
-                Charset.forName(encoding))
+            new InputStreamReader(Files.newInputStream(path), cs)
         ));
     }
 

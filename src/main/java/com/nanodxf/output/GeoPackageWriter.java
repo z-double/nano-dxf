@@ -45,36 +45,6 @@ public class GeoPackageWriter {
     private static final int GPKG_APPLICATION_ID = 0x47504B47; // 'GPKG'
     private static final int GPKG_USER_VERSION    = 10200;     // v1.2.0
 
-    // 内置 EPSG CRS 描述（用于 gpkg_spatial_ref_sys.definition）
-    private static final Map<Integer, String[]> KNOWN_SRS;
-    static {
-        Map<Integer, String[]> m = new LinkedHashMap<>();
-        // [organization, org_coord_sys_id, definition (WKT)]
-        m.put(4326, new String[]{"EPSG", "4326",
-            "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]]," +
-            "PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]"});
-        m.put(4490, new String[]{"EPSG", "4490",
-            "GEOGCS[\"China Geodetic Coordinate System 2000\"," +
-            "DATUM[\"China_2000\",SPHEROID[\"CGCS2000\",6378137,298.257222101]]," +
-            "PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]"});
-        m.put(3857, new String[]{"EPSG", "3857",
-            "PROJCS[\"WGS 84 / Pseudo-Mercator\",GEOGCS[\"WGS 84\"," +
-            "DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]]," +
-            "PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]," +
-            "PROJECTION[\"Mercator_1SP\"],PARAMETER[\"central_meridian\",0]," +
-            "PARAMETER[\"scale_factor\",1],PARAMETER[\"false_easting\",0]," +
-            "PARAMETER[\"false_northing\",0],UNIT[\"metre\",1]]"});
-        m.put(32649, new String[]{"EPSG", "32649",
-            "PROJCS[\"WGS 84 / UTM zone 49N\",GEOGCS[\"WGS 84\"," +
-            "DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]]," +
-            "PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]," +
-            "PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",0]," +
-            "PARAMETER[\"central_meridian\",111],PARAMETER[\"scale_factor\",0.9996]," +
-            "PARAMETER[\"false_easting\",500000],PARAMETER[\"false_northing\",0]," +
-            "UNIT[\"metre\",1]]"});
-        KNOWN_SRS = Collections.unmodifiableMap(m);
-    }
-
     private final GeoPackageWriteConfig config;
 
     public GeoPackageWriter() { this(GeoPackageWriteConfig.defaults()); }
@@ -186,18 +156,16 @@ public class GeoPackageWriter {
                 "'Undefined Geographic SRS',0,'NONE',0,'undefined','undefined geographic coordinate reference system')");
             st.execute(
                 "INSERT OR IGNORE INTO gpkg_spatial_ref_sys VALUES (" +
-                "'WGS 84 geodetic',4326,'EPSG',4326," +
-                "'GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]]," +
-                "PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]','WGS 84')");
+                "'WGS 84 geodetic',4326,'EPSG',4326,'" + CrsRegistry.ogcWkt(4326) + "','WGS 84')");
         }
     }
 
     private static void insertSrs(Connection conn, int srsId) throws SQLException {
         if (srsId == 0 || srsId == -1 || srsId == 4326) return; // 已由 createGpkgTables 插入
-        String[] meta = KNOWN_SRS.get(srsId);
-        String name = meta != null ? "EPSG:" + srsId : "User-defined SRS";
-        String org  = meta != null ? meta[0] : "NONE";
-        String def  = meta != null ? meta[2] : "undefined";
+        String def = CrsRegistry.ogcWkt(srsId);
+        String name = def != null ? "EPSG:" + srsId : "User-defined SRS";
+        String org  = def != null ? "EPSG" : "NONE";
+        if (def == null) def = "undefined";
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT OR IGNORE INTO gpkg_spatial_ref_sys VALUES (?,?,?,?,?,?)")) {
             ps.setString(1, name);
@@ -325,13 +293,7 @@ public class GeoPackageWriter {
 
     /** 从 CRS 字符串（如 "EPSG:4326"）解析 SRID，无法解析返回 0。 */
     private static int parseSrsId(String crs) {
-        if (crs == null || crs.isBlank()) return 0;
-        String upper = crs.trim().toUpperCase();
-        if (upper.startsWith("EPSG:")) {
-            try { return Integer.parseInt(upper.substring(5).trim()); }
-            catch (NumberFormatException ignored) {}
-        }
-        return 0;
+        return CrsRegistry.parseEpsg(crs);
     }
 
     private static String strProp(CADEntity e, String key) {

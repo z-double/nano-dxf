@@ -65,68 +65,6 @@ public class ShapefileWriter {
     private static final int SHP_POLYLINEZ = 13;
     private static final int SHP_POLYGONZ  = 15;
 
-    // 内置 CRS WKT 表（键为大写 EPSG 代号，ESRI WKT 格式）
-    private static final Map<String, String> KNOWN_WKT;
-    static {
-        Map<String, String> m = new LinkedHashMap<>();
-
-        // ---------- 地理坐标系 ----------
-
-        // WGS 84（EPSG:4326）
-        m.put("EPSG:4326",
-            "GEOGCS[\"GCS_WGS_1984\"," +
-            "DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]]," +
-            "PRIMEM[\"Greenwich\",0.0]," +
-            "UNIT[\"Degree\",0.0174532925199433]]");
-
-        // 2000 国家大地坐标系（CGCS2000 地理，EPSG:4490）
-        final String CGCS2000_GEO =
-            "GEOGCS[\"GCS_China_Geodetic_Coordinate_System_2000\"," +
-            "DATUM[\"D_China_2000\",SPHEROID[\"CGCS2000\",6378137.0,298.257222101]]," +
-            "PRIMEM[\"Greenwich\",0.0]," +
-            "UNIT[\"Degree\",0.0174532925199433]]";
-        m.put("EPSG:4490", CGCS2000_GEO);
-
-        // ---------- CGCS2000 3° 高斯克吕格（带号 + CM 命名，EPSG:4534–4554）----------
-        // EPSG:4534 = CM 75°，每增加 1 → CM + 3°
-        for (int epsg = 4534; epsg <= 4554; epsg++) {
-            int cm = 75 + 3 * (epsg - 4534);
-            m.put("EPSG:" + epsg,
-                "PROJCS[\"CGCS2000 / 3-degree Gauss-Kruger CM " + cm + "E\"," +
-                CGCS2000_GEO + "," +
-                "PROJECTION[\"Gauss_Kruger\"]," +
-                "PARAMETER[\"False_Easting\",500000.0]," +
-                "PARAMETER[\"False_Northing\",0.0]," +
-                "PARAMETER[\"Central_Meridian\"," + cm + ".0]," +
-                "PARAMETER[\"Scale_Factor\",1.0]," +
-                "PARAMETER[\"Latitude_Of_Origin\",0.0]," +
-                "UNIT[\"Meter\",1.0]]");
-        }
-
-        // ---------- WGS84 / UTM 常用区带（EPSG:32644–32654，覆盖中国）----------
-        // EPSG:3264x = WGS84/UTM zone xN，CM = x×6 - 183
-        final String WGS84_GEO =
-            "GEOGCS[\"GCS_WGS_1984\"," +
-            "DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]]," +
-            "PRIMEM[\"Greenwich\",0.0]," +
-            "UNIT[\"Degree\",0.0174532925199433]]";
-        for (int zone = 44; zone <= 54; zone++) {
-            int cm = zone * 6 - 183;
-            m.put("EPSG:326" + zone,
-                "PROJCS[\"WGS_1984_UTM_Zone_" + zone + "N\"," +
-                WGS84_GEO + "," +
-                "PROJECTION[\"Transverse_Mercator\"]," +
-                "PARAMETER[\"False_Easting\",500000.0]," +
-                "PARAMETER[\"False_Northing\",0.0]," +
-                "PARAMETER[\"Central_Meridian\"," + cm + ".0]," +
-                "PARAMETER[\"Scale_Factor\",0.9996]," +
-                "PARAMETER[\"Latitude_Of_Origin\",0.0]," +
-                "UNIT[\"Meter\",1.0]]");
-        }
-
-        KNOWN_WKT = Collections.unmodifiableMap(m);
-    }
-
     private final ShapefileWriteConfig config;
 
     public ShapefileWriter() { this(ShapefileWriteConfig.defaults()); }
@@ -684,16 +622,9 @@ public class ShapefileWriter {
      * </ol>
      */
     private void writePRJ(Path path, String crs) throws IOException {
-        String trimmed = crs.trim();
-        String upper   = trimmed.toUpperCase(Locale.ROOT);
-        String wkt;
-        if (upper.startsWith("GEOGCS[") || upper.startsWith("PROJCS[") || upper.startsWith("COMPD_CS[")) {
-            wkt = trimmed;  // 用户直接提供了 WKT
-        } else {
-            wkt = KNOWN_WKT.get(upper);
-            if (wkt == null) {
-                wkt = "# CRS: " + trimmed;  // 未知代号，退回注释（不能被 GIS 工具解析）
-            }
+        String wkt = CrsRegistry.esriWktFor(crs);
+        if (wkt == null) {
+            wkt = "# CRS: " + crs.trim();  // 未知代号，退回注释（不能被 GIS 工具解析）
         }
         Files.writeString(path, wkt);
     }

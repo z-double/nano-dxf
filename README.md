@@ -13,7 +13,7 @@
 - **INSERT 块递归展开**：仿射变换（缩放 → 旋转 → 平移）、路径集合循环引用检测
 - **国内测绘软件适配**：CASS / EPS / MapMatrix / MapGIS / SuperMap XDATA 地物编码提取，内置约 80 条 GB/T 20257 映射
 - **BYLAYER 颜色继承**：ACI 256 色表 → 图层颜色 → 实体颜色完整链路
-- **编码自适应**：UTF-8 BOM → juniversalchardet 检测 → 版本号推断 → GBK 兜底
+- **编码自适应**：UTF-8 BOM → juniversalchardet 检测 → 版本号推断 → GBK 兜底；支持 `ParseConfig.encoding(...)` 强制覆盖（v1.7.2）
 - **容错解析**：截断文件、损坏实体、未知实体类型均不中断，错误分级收集（FATAL / WARN / INFO）
 - **解析过滤**：`includeLayers` / `excludeLayers` / `includeTypes`，大文件按需跳过无关图层（v1.6.0）
 - **多格式输出**：GeoJSON、Shapefile（2D/3D）、GeoPackage、**SVG**（v1.6.0，零依赖矢量预览）
@@ -40,7 +40,7 @@
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.7.0</version>
+    <version>1.7.2</version>
 </dependency>
 ```
 
@@ -69,9 +69,10 @@ System.out.println(result.getStats());
 
 ```java
 ParseConfig config = ParseConfig.builder()
-    .crs("EPSG:4545")          // CGCS2000 / 3度带 117°E
+    .crs("EPSG:4545")          // CGCS2000 / 3度带 108°E
     .arcTolerance(0.001)       // 弧线离散精度（米）
     .coordinateDecimalPlaces(4)// 坐标小数位数
+    .encoding("GB18030")       // 强制指定编码，跳过自动检测（v1.7.2）
     .build();
 
 ParseResult result = new CADParser(config).parse(Paths.get("drawing.dxf"));
@@ -101,8 +102,12 @@ Files.writeString(Paths.get("output.geojson"), geojson);
 | 参数 | 默认值 | 说明 |
 |---|---|---|
 | `crs` | null | 坐标参考系标识（如 `EPSG:4545`） |
-| `arcTolerance` | 0.01 | 弧线/样条离散弦高误差（坐标单位） |
+| `arcTolerance` | 0.001 | 弧线/样条离散弦高误差（坐标单位） |
 | `coordinateDecimalPlaces` | 4 | GeoJSON 坐标小数位数（0~15） |
+| `encoding` | null | 强制指定文件编码（v1.7.2），null 表示自动检测 |
+| `includeLayers` / `excludeLayers` | null | 图层白/黑名单（大小写不敏感） |
+| `includeTypes` | null | 实体类型白名单 |
+| `applyUnitConversion` | true | 是否按 `$INSUNITS` 换算为米 |
 
 ### ParseResult
 
@@ -112,6 +117,9 @@ Files.writeString(Paths.get("output.geojson"), geojson);
 | `getErrors()` | `List<ParseError>` | 分级错误列表 |
 | `getStats()` | `ParseStats` | 耗时、实体数、错误数 |
 | `getMetadata()` | `DrawingMetadata` | 版本、单位、CRS 等图纸元数据 |
+| `getLayers()` | `Map<String, CADLayer>` | TABLES 段图层定义（v1.7.1）|
+| `getTextStyles()` | `Map<String, TextStyle>` | TABLES 段文字样式（v1.7.1）|
+| `getLineTypes()` | `Map<String, LineTypeDef>` | TABLES 段线型，含图案元素（v1.7.1 / v1.7.2）|
 
 ### CADEntity
 

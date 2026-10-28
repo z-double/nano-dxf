@@ -13,7 +13,7 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 - **Recursive INSERT expansion**: affine transform (scale → rotate → translate), path-set cycle detection
 - **Chinese surveying software support**: CASS / EPS / MapMatrix / MapGIS / SuperMap XDATA feature code extraction, ~80 built-in GB/T 20257 mappings
 - **BYLAYER color inheritance**: ACI 256-color table → layer color → entity color full chain
-- **Auto encoding detection**: UTF-8 BOM → juniversalchardet → version inference → GBK fallback
+- **Auto encoding detection**: UTF-8 BOM → juniversalchardet → version inference → GBK fallback; `ParseConfig.encoding(...)` for explicit override (v1.7.2)
 - **Fault-tolerant parsing**: truncated files, corrupted entities, unknown entity types never abort parsing; errors collected with severity levels (FATAL / WARN / INFO)
 - **Parse filtering**: `includeLayers` / `excludeLayers` / `includeTypes`, skip irrelevant layers on large files (v1.6.0)
 - **Multiple output formats**: GeoJSON, Shapefile (2D/3D), GeoPackage, SVG (v1.6.0, zero-dependency vector preview), point-cloud CSV (v1.7.0), ESRI ASCII Grid DEM (v1.7.0)
@@ -40,7 +40,7 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.7.0</version>
+    <version>1.7.2</version>
 </dependency>
 ```
 
@@ -68,9 +68,10 @@ System.out.println(result.getStats());
 
 ```java
 ParseConfig config = ParseConfig.builder()
-    .crs("EPSG:4545")           // CGCS2000 3-Degree GK CM 117E
+    .crs("EPSG:4545")           // CGCS2000 3-Degree GK CM 108E
     .arcTolerance(0.001)        // arc discretization chord-height tolerance
     .includeLayers("等高线", "建筑")  // layer whitelist (v1.6.0)
+    .encoding("GB18030")        // force file charset, skip detection (v1.7.2)
     .build();
 
 ParseResult result = new CADParser(config).parse(Paths.get("drawing.dxf"));
@@ -280,6 +281,9 @@ new GeoPackageWriter(cfg).write(result.getEntities(), Paths.get("output.gpkg"));
 | `getErrors()` | `List<ParseError>` | Leveled error list |
 | `getStats()` | `ParseStats` | Parse time, entity count, error counts |
 | `getMetadata()` | `DrawingMetadata` | Version, units, CRS metadata |
+| `getLayers()` | `Map<String, CADLayer>` | TABLES layer definitions (v1.7.1) |
+| `getTextStyles()` | `Map<String, TextStyle>` | TABLES text styles (v1.7.1) |
+| `getLineTypes()` | `Map<String, LineTypeDef>` | TABLES line types incl. pattern elements (v1.7.1 / v1.7.2) |
 | `index()` | `EntityIndex` | Lazy-built spatial index (STRtree) |
 
 ### CADEntity

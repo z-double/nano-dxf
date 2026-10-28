@@ -5,6 +5,45 @@
 
 ---
 
+## [1.7.2] - 2026-10-28
+
+### 新增
+
+- **编码覆盖 API**：`ParseConfig.Builder.encoding(Charset)` / `encoding(String)`，可跳过自动检测强制指定文件编码（如 `GB18030`、`UTF-16LE`）。
+  - 新增 `ParseConfig.getEncoding()`；为 null 时仍走原有自动检测链路。
+  - `DXFReader.open(Path, Charset)` 重载，原 `open(Path)` 行为不变。
+- **LTYPE 线型图案解析**：`LineTypeDef` 新增 `patternLength`（组码 40）与 `patternElements`（组码 49）。
+  - 通过 `ParseResult.getLineTypes()` 读取，可还原虚线/点划线等线型的图案定义。
+- **CRS 注册表**：新增 `com.nanodxf.output.CrsRegistry`，集中维护 EPSG 代号 → ESRI WKT / OGC WKT 双方言映射。
+  - 覆盖 WGS84(4326)、CGCS2000(4490)、CGCS2000 3° 高斯-克吕格(4534–4554)、UTM(32644–32654)、Web Mercator(3857)。
+  - Shapefile `.prj` 使用 ESRI 方言，GeoPackage `gpkg_spatial_ref_sys` 使用 OGC 方言，修正此前两种输出共用同一段 WKT 的问题。
+- **几何容差常量**：新增 `com.nanodxf.geometry.GeometryConstants`（`EPS` / `ANGLE_EPS` / `BULGE_EPS` / `SPAN_EPS` / `SPLINE_TOLERANCE`），消除各 Handler 中散落的魔法数字。
+
+### 修复
+
+- `ShapefileWriter` 与 `GeoPackageWriter` 各自内联的 WKT 常量表重复且方言混用，统一收敛到 `CrsRegistry`。
+
+---
+
+## [1.7.1] - 2026-10-28
+
+### 新增
+
+- **HATCH 样条边界边**：`HatchHandler` 支持边界路径中 `edgeType=4`（Spline）的边，此前该类型边界被整体丢弃或降级。
+- **`ParseResult` 元数据访问 API**：新增 `getLayers()`、`getTextStyles()`、`getLineTypes()`，无需再自行解析 TABLES 段即可获得图层/文字样式/线型定义。
+
+### 修复
+
+- 空 `catch` 块静默吞掉解析异常：`LeaderHandler` / `MultiLeaderHandler` / `SplineHandler` 改为 `FINE` 级别日志记录原因，异常仍不中断解析。
+- `TopologyChecker` / `GeomSimplifier` 捕获范围扩大到 `TopologyException | IllegalArgumentException`，避免 JTS 几何异常逃逸到调用方。
+- `V150Test` 中被注释掉的临时文件清理逻辑已恢复。
+
+### 构建
+
+- `central-publishing-maven-plugin` 由 `0.5.0` 升级至 `0.12.0`，修复发布时 Sonatype 返回字段超出旧版 model 导致的 `Unrecognized field "warnings"` 报错。
+
+---
+
 ## [1.7.0] - 2026-05-29
 
 ### 新增
