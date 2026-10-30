@@ -26,9 +26,17 @@ public class DXFWriteConfig {
     /** 坐标小数位数（0~15），默认 4（0.1mm 精度）。 */
     private final int coordinateDecimalPlaces;
 
+    /**
+     * 图纸单位（{@code $INSUNITS}）：0=无单位、4=毫米、6=米（默认）。
+     * 默认 6 与解析侧「坐标统一换算为米」配套；若解析时关闭了单位换算，
+     * 应设为本图原始单位以保持往返一致。
+     */
+    private final int insunits;
+
     private DXFWriteConfig(Builder b) {
         this.version                = b.version;
         this.coordinateDecimalPlaces = b.coordinateDecimalPlaces;
+        this.insunits               = b.insunits;
         // 编码：未指定时按版本自动选
         this.encoding = b.encoding != null ? b.encoding
                 : (b.version.before(DXFVersion.R2007) ? "GBK" : "UTF-8");
@@ -37,6 +45,7 @@ public class DXFWriteConfig {
     public DXFVersion getVersion()               { return version; }
     public String getEncoding()                  { return encoding; }
     public int getCoordinateDecimalPlaces()      { return coordinateDecimalPlaces; }
+    public int getInsunits()                     { return insunits; }
 
     public static Builder builder()              { return new Builder(); }
     public static DXFWriteConfig defaults()      { return builder().build(); }
@@ -45,6 +54,7 @@ public class DXFWriteConfig {
         private DXFVersion version = DXFVersion.R2007;  // 浩辰 CAD 最低支持 R2007（AC1021）
         private String encoding = null; // null = 随版本自动
         private int coordinateDecimalPlaces = 4;
+        private int insunits = 6;
 
         /**
          * 输出版本，默认 {@link DXFVersion#R2007}（浩辰 CAD 最低支持版本）。
@@ -73,6 +83,18 @@ public class DXFWriteConfig {
             if (v < 0 || v > 15)
                 throw new IllegalArgumentException("coordinateDecimalPlaces 范围 0~15");
             this.coordinateDecimalPlaces = v; return this;
+        }
+
+        /**
+         * 图纸单位（{@code $INSUNITS}），范围 0~20，默认 6（米）。
+         * 常用值：0=无单位、1=英寸、2=英尺、4=毫米、5=厘米、6=米。
+         * 默认 6 与 {@code ParseConfig} 默认把坐标换算为米配套；
+         * 解析时设了 {@code applyUnitConversion(false)} 的图纸，应写回原始单位。
+         */
+        public Builder insunits(int v) {
+            if (v < 0 || v > 20)
+                throw new IllegalArgumentException("insunits 范围 0~20，当前值：" + v);
+            this.insunits = v; return this;
         }
 
         public DXFWriteConfig build() { return new DXFWriteConfig(this); }

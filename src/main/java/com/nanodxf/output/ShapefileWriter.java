@@ -20,6 +20,7 @@ import java.util.*;
  *   <li>{@code .shp} — 几何数据（点 / 折线 / 多边形）</li>
  *   <li>{@code .shx} — 几何索引</li>
  *   <li>{@code .dbf} — 属性数据（DBF III 格式）</li>
+ *   <li>{@code .cpg} — DBF 字符编码声明（内容为 config.encoding，如 {@code GBK}、{@code UTF-8}）</li>
  *   <li>{@code .prj} — 坐标系 WKT（仅当 config.crs != null 时生成）</li>
  * </ul>
  *
@@ -101,6 +102,7 @@ public class ShapefileWriter {
         writeSHP(base.resolveSibling(base.getFileName() + ".shp"), shapeType, shpRecords);
         writeSHX(base.resolveSibling(base.getFileName() + ".shx"), shapeType, shpRecords);
         writeDBF(base.resolveSibling(base.getFileName() + ".dbf"), entities);
+        writeCPG(base.resolveSibling(base.getFileName() + ".cpg"));
         if (config.getCrs() != null) {
             writePRJ(base.resolveSibling(base.getFileName() + ".prj"), config.getCrs());
         }
@@ -579,10 +581,25 @@ public class ShapefileWriter {
     }
 
     private void writeDbfField(OutputStream out, String value, int length, Charset cs) throws IOException {
-        byte[] bytes = (value != null ? value : "").getBytes(cs);
-        int write = Math.min(bytes.length, length);
-        out.write(bytes, 0, write);
-        for (int i = write; i < length; i++) out.write(0x20); // right-pad with spaces
+        byte[] bytes = truncateToBytes(value != null ? value : "", length, cs);
+        out.write(bytes);
+        for (int i = bytes.length; i < length; i++) out.write(0x20); // right-pad with spaces
+    }
+
+    /**
+     * 按字节上限截断字符串，但不切断多字节字符：
+     * 超长时回退到完整字符边界，避免 DBF 字段末尾出现半个汉字/半个 UTF-8 序列。
+     */
+    static byte[] truncateToBytes(String s, int maxBytes, Charset cs) {
+        byte[] all = s.getBytes(cs);
+        if (all.length <= maxBytes) return all;
+        int end = s.length();
+        while (end > 0) {
+            end -= Character.charCount(s.codePointBefore(end));
+            byte[] prefix = s.substring(0, end).getBytes(cs);
+            if (prefix.length <= maxBytes) return prefix;
+        }
+        return new byte[0];
     }
 
     private void writeDbfNumeric(OutputStream out, Object value, int length, int decimals)
@@ -596,13 +613,26 @@ public class ShapefileWriter {
                 formatted = " ".repeat(length);
             } else {
                 String fmt = decimals > 0 ? "%." + decimals + "f" : "%.0f";
-                formatted = String.format(fmt, d);
+                formatted = String.format(Locale.ROOT, fmt, d);
                 if (formatted.length() > length) formatted = formatted.substring(0, length);
                 if (formatted.length() < length)
                     formatted = " ".repeat(length - formatted.length()) + formatted; // right-align
             }
         }
         out.write(formatted.getBytes("ASCII"));
+    }
+
+    // -------------------------------------------------------------------------
+    // CPG file writer
+    // -------------------------------------------------------------------------
+
+    /**
+     * 写出 CPG 文件，声明 DBF 字段内容的字符编码（如 {@code GBK}、{@code UTF-8}）。
+     * QGIS / ArcGIS 依赖此文件正确解码中文，缺失时按系统默认编码猜测，容易乱码。
+     */
+    private void writeCPG(Path path) throws IOException {
+        Files.writeString(path, Charset.forName(config.getEncoding()).name(),
+                java.nio.charset.StandardCharsets.US_ASCII);
     }
 
     // -------------------------------------------------------------------------

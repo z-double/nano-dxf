@@ -14,6 +14,10 @@ import java.util.List;
  */
 public class Discretizer {
 
+    /** 曲线离散的最少 / 最多采样段数（上限防止大半径或极小容差导致点数失控）。 */
+    private static final int MIN_SAMPLES = 8;
+    private static final int MAX_SAMPLES = 2000;
+
     // -------------------------------------------------------------------------
     // 圆弧
     // -------------------------------------------------------------------------
@@ -22,7 +26,7 @@ public class Discretizer {
      * 将圆弧离散化为折线点列（含首尾端点）。
      *
      * <p>采样点数公式：sagitta = r·(1 - cos(θ/2)) ≤ tolerance<br>
-     * 解得 n = ceil(spanRad / (2·acos(1 - tolerance/r)))，不足 8 时取 8。
+     * 解得 n = ceil(spanRad / (2·acos(1 - tolerance/r)))，并限制在 [8, 2000] 区间。
      *
      * @param center    圆心坐标 [cx, cy]
      * @param r         半径
@@ -38,8 +42,14 @@ public class Discretizer {
         double spanRad  = endRad - startRad;
         if (spanRad < 0) spanRad += 2 * Math.PI;
 
-        int n = (int) Math.ceil(spanRad / (2 * Math.acos(1.0 - tolerance / r)));
-        n = Math.max(n, 8);
+        if (r <= GeometryConstants.EPS) {
+            return List.of(new Coordinate(center[0], center[1])); // 退化为点
+        }
+        // tolerance/r 限制在 [0, 2]：超出范围时 acos 参数越界（NaN），且半圆心角 ≥ π/2 时已无实际意义
+        double ratio = Math.min(2.0, Math.max(0.0, tolerance / r));
+        double halfAngle = Math.acos(1.0 - ratio);
+        int n = (int) Math.min(MAX_SAMPLES, Math.ceil(spanRad / (2 * halfAngle)));
+        n = Math.max(MIN_SAMPLES, n);
 
         List<Coordinate> pts = new ArrayList<>(n + 1);
         for (int i = 0; i <= n; i++) {
@@ -125,7 +135,8 @@ public class Discretizer {
             polyLen += Math.sqrt(dx * dx + dy * dy);
         }
         // 以控制多边形长度 / (tolerance * 10) 为采样数基准
-        int numSamples = Math.max(8, Math.min(2000, (int) (polyLen / (tolerance * 10))));
+        int numSamples = (int) Math.max(MIN_SAMPLES,
+                Math.min(MAX_SAMPLES, polyLen / (tolerance * 10)));
 
         List<Coordinate> result = new ArrayList<>(numSamples + 1);
         for (int i = 0; i <= numSamples; i++) {

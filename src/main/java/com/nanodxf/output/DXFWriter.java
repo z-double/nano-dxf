@@ -80,11 +80,7 @@ public class DXFWriter {
     private static final String H_UC_TABLE    = "E7";  // UCS 表（空）
     private static final String H_DS_TABLE    = "E8";  // DIMSTYLE 表
     private static final String H_DS_STD      = "E9";  // Standard DIMSTYLE 记录
-    // 动态分配：图层记录 0x10+，实体 0x100+，用户块 BR 0x200+，用户块实体 0x300+
-
-    private static final int H_USER_BR_BASE  = 0x200;  // 用户块 BLOCK_RECORD 起始
-    private static final int H_USER_BLK_BASE = 0x210;  // 用户块 BLOCK/ENDBLK 句柄起始（每块占 2 个）
-    private static final int H_USER_ENT_BASE = 0x300;  // 用户块内实体句柄起始
+    // 动态句柄统一由 HandleAllocator 从 0x100 起分配
 
     private final DXFWriteConfig config;
     /** 坐标格式串，预计算避免 fmt() 每次拼接字符串（Task #8）。 */
@@ -158,7 +154,7 @@ public class DXFWriter {
     private void writeR12Header(LineWriter w) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "HEADER");
         pair(w, 9, "$ACADVER"); pair(w, 1, "AC1009");
-        pair(w, 9, "$INSUNITS"); pair(w, 70, "6");
+        pair(w, 9, "$INSUNITS"); pair(w, 70, String.valueOf(config.getInsunits()));
         pair(w, 9, "$LTSCALE"); pair(w, 40, fmt(1.0));
         pair(w, 0, "ENDSEC");
     }
@@ -347,7 +343,7 @@ public class DXFWriter {
         writeR12Common(w, e);
         pair(w, 10, fmt(p.getX())); pair(w, 20, fmt(p.getY())); pair(w, 30, fmtZ(p.getCoordinate().getZ()));
         pair(w, 40, fmt(dblProp(e, "height", 2.5)));
-        pair(w, 1, text);
+        pair(w, 1, singleLine(text));
         double rot = dblProp(e, "rotation", 0.0);
         if (Math.abs(rot) > GeometryConstants.ANGLE_EPS) pair(w, 50, fmt(rot));
     }
@@ -355,6 +351,7 @@ public class DXFWriter {
     private void writeMTextR12(LineWriter w, Point p, CADEntity e) throws IOException {
         // R12 无 MTEXT，降级为 TEXT（取第一行）
         String text = strProp(e, "text").replace("\\P", " ").replaceAll("\\\\[A-Za-z][^;]*;", "");
+        text = singleLine(text);
         if (text.isBlank()) return;
         pair(w, 0, "TEXT");
         writeR12Common(w, e);
@@ -481,22 +478,50 @@ public class DXFWriter {
 
     private void writeR2000(LineWriter w, List<CADBlock> blocks,
                              List<CADEntity> entities, Map<String, LayerInfo> layerInfo) throws IOException {
-        int[] lyH  = {0x10};
-        int[] enH  = {0x100};
+        HandleAllocator handles = new HandleAllocator();
+        List<String> blockRecordHandles = new ArrayList<>(blocks.size());
 
         Set<String> linetypes = collectLinetypes(layerInfo);
         double[] extent = computeExtent(entities, blocks);
 
-        writeR2000Header(w, extent);
+        writeR2000Header(w, extent, estimateHandleSeed(blocks, entities, layerInfo, linetypes));
         pair(w, 0, "SECTION"); pair(w, 2, "CLASSES"); pair(w, 0, "ENDSEC");
-        writeR2000Tables(w, layerInfo, linetypes, blocks, lyH);
-        writeR2000Blocks(w, blocks);
-        writeR2000Entities(w, entities, enH);
+        writeR2000Tables(w, layerInfo, linetypes, blocks, handles, blockRecordHandles);
+        writeR2000Blocks(w, blocks, blockRecordHandles, handles);
+        writeR2000Entities(w, entities, handles);
         writeR2000Objects(w);
         pair(w, 0, "EOF");
     }
 
-    private void writeR2000Header(LineWriter w, double[] extent) throws IOException {
+    /**
+     * 估算 {@code $HANDSEED}：按写出流程逐项累计句柄消耗，加余量。
+     * 只需保证大于实际最大句柄，估高无害（HANDSEED 是下一个可用值，不是计数）。
+     */
+    private int estimateHandleSeed(List<CADBlock> blocks, List<CADEntity> entities,
+                                    Map<String, LayerInfo> layerInfo, Set<String> linetypes) {
+        int n = HandleAllocator.FIRST;
+        n += linetypes.size() - 1;          // 用户线型（Continuous 用固定句柄）
+        n += layerInfo.size();              // 图层记录
+        n += blocks.size() * 3;             // 用户块：BLOCK_RECORD + BLOCK + ENDBLK
+        for (CADBlock b : blocks)
+            for (CADEntity e : b.entities()) n += countHandles(e.geometry());
+        for (CADEntity e : entities) n += countHandles(e.geometry());
+        return n + 0x10;                    // 余量
+    }
+
+    /** 一条实体将写出的句柄数：集合类型逐元素展开，Polygon 外环 + 每个洞各一条。 */
+    private static int countHandles(Geometry g) {
+        if (g == null) return 0;
+        if (g instanceof GeometryCollection gc) {
+            int n = 0;
+            for (int i = 0; i < gc.getNumGeometries(); i++) n += countHandles(gc.getGeometryN(i));
+            return n;
+        }
+        if (g instanceof Polygon p) return 1 + p.getNumInteriorRing();
+        return 1;
+    }
+
+    private void writeR2000Header(LineWriter w, double[] extent, int handleSeed) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "HEADER");
         pair(w, 9, "$ACADVER");    pair(w, 1, config.getVersion().getVersionString());
         if (!config.getVersion().before(DXFVersion.R2007)) {
@@ -504,20 +529,21 @@ public class DXFWriter {
         }
         pair(w, 9, "$DWGCODEPAGE");
         pair(w, 3, "GBK".equalsIgnoreCase(config.getEncoding()) ? "ANSI_936" : "ANSI_1252");
-        pair(w, 9, "$INSUNITS");   pair(w, 70, "6");
+        pair(w, 9, "$INSUNITS");   pair(w, 70, String.valueOf(config.getInsunits()));
         pair(w, 9, "$LTSCALE");    pair(w, 40, fmt(1.0));
         pair(w, 9, "$EXTMIN");
         pair(w, 10, fmt(extent[0])); pair(w, 20, fmt(extent[1])); pair(w, 30, fmt(extent[2]));
         pair(w, 9, "$EXTMAX");
         pair(w, 10, fmt(extent[3])); pair(w, 20, fmt(extent[4])); pair(w, 30, fmt(extent[5]));
         pair(w, 9, "$HANDSEED");
-        pair(w, 5, "2000");  // 0x2000，覆盖用户块句柄范围
+        pair(w, 5, hex(handleSeed));
         pair(w, 0, "ENDSEC");
     }
 
     private void writeR2000Tables(LineWriter w, Map<String, LayerInfo> layerInfo,
                                    Set<String> linetypes, List<CADBlock> blocks,
-                                   int[] lyH) throws IOException {
+                                   HandleAllocator handles,
+                                   List<String> blockRecordHandles) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "TABLES");
 
         // VPORT 表（含 *Active 记录）
@@ -560,9 +586,8 @@ public class DXFWriter {
         pair(w, 2, "ByLayer"); pair(w, 70, "0");
         pair(w, 3, ""); pair(w, 72, "65"); pair(w, 73, "0"); pair(w, 40, fmt(0.0));
         // 用户线型（包含 Continuous 以及图层中引用的其他线型）
-        int[] ltH = {0xA0};
         for (String lt : linetypes) {
-            String h = "Continuous".equalsIgnoreCase(lt) ? H_LT_CONT : hex(ltH[0]++);
+            String h = "Continuous".equalsIgnoreCase(lt) ? H_LT_CONT : handles.next();
             pair(w, 0, "LTYPE"); pair(w, 5, h);
             pair(w, 330, H_LT_TABLE);
             pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbLinetypeTableRecord");
@@ -579,7 +604,7 @@ public class DXFWriter {
         pair(w, 70, String.valueOf(layerInfo.size()));
         for (Map.Entry<String, LayerInfo> entry : layerInfo.entrySet()) {
             LayerInfo li = entry.getValue();
-            pair(w, 0, "LAYER"); pair(w, 5, hex(lyH[0]++));
+            pair(w, 0, "LAYER"); pair(w, 5, handles.next());
             pair(w, 330, H_LY_TABLE);
             pair(w, 100, "AcDbSymbolTableRecord"); pair(w, 100, "AcDbLayerTableRecord");
             pair(w, 2, entry.getKey()); pair(w, 70, "0");
@@ -641,9 +666,10 @@ public class DXFWriter {
         pair(w, 100, "AcDbSymbolTable"); pair(w, 70, String.valueOf(totalBR));
         writeBlockRecord(w, H_MS_BR, "*Model_Space");
         writeBlockRecord(w, H_PS_BR, "*Paper_Space");
-        int[] brH = {H_USER_BR_BASE};
         for (CADBlock b : blocks) {
-            writeUserBlockRecord(w, hex(brH[0]++), b.getName());
+            String h = handles.next();
+            blockRecordHandles.add(h);   // BLOCKS 段中 BLOCK/ENDBLK/块内实体的 owner
+            writeUserBlockRecord(w, h, b.getName());
         }
         pair(w, 0, "ENDTAB");
 
@@ -668,20 +694,17 @@ public class DXFWriter {
         pair(w, 70, "0"); pair(w, 280, "1"); pair(w, 281, "0");
     }
 
-    private void writeR2000Blocks(LineWriter w, List<CADBlock> blocks) throws IOException {
+    private void writeR2000Blocks(LineWriter w, List<CADBlock> blocks,
+                                   List<String> blockRecordHandles,
+                                   HandleAllocator handles) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "BLOCKS");
         writeBlockDef(w, H_MS_BLOCK, H_MS_ENDBLK, H_MS_BR, "*Model_Space");
         writeBlockDef(w, H_PS_BLOCK, H_PS_ENDBLK, H_PS_BR, "*Paper_Space");
 
-        // 用户块：handle 从 H_USER_BLK_BASE 起，每块 BLOCK+ENDBLK 占 2 个句柄
-        int[] blkH  = {H_USER_BLK_BASE};
-        int[] brH   = {H_USER_BR_BASE};
-        int[] entH  = {H_USER_ENT_BASE};
-        for (CADBlock b : blocks) {
-            String hBR     = hex(brH[0]++);
-            String hBlock  = hex(blkH[0]++);
-            String hEndblk = hex(blkH[0]++);
-            writeUserBlockDef(w, hBlock, hEndblk, hBR, b, entH);
+        for (int i = 0; i < blocks.size(); i++) {
+            String hBlock  = handles.next();
+            String hEndblk = handles.next();
+            writeUserBlockDef(w, hBlock, hEndblk, blockRecordHandles.get(i), blocks.get(i), handles);
         }
 
         pair(w, 0, "ENDSEC");
@@ -709,7 +732,7 @@ public class DXFWriter {
     }
 
     private void writeUserBlockDef(LineWriter w, String hBlock, String hEndblk,
-                                    String hBR, CADBlock block, int[] entH) throws IOException {
+                                    String hBR, CADBlock block, HandleAllocator handles) throws IOException {
         pair(w, 0, "BLOCK"); pair(w, 5, hBlock);
         pair(w, 330, hBR);
         pair(w, 100, "AcDbEntity"); pair(w, 8, "0");
@@ -719,7 +742,7 @@ public class DXFWriter {
         pair(w, 3, block.getName()); pair(w, 1, "");
 
         // 块内实体（owner 指向本块的 BLOCK_RECORD）
-        for (CADEntity e : block.entities()) writeEntityR2000WithOwner(w, e, hBR, entH);
+        for (CADEntity e : block.entities()) writeEntityR2000WithOwner(w, e, hBR, handles);
 
         pair(w, 0, "ENDBLK"); pair(w, 5, hEndblk);
         pair(w, 330, hBR);
@@ -728,45 +751,45 @@ public class DXFWriter {
     }
 
     private void writeR2000Entities(LineWriter w, List<CADEntity> entities,
-                                     int[] enH) throws IOException {
+                                     HandleAllocator handles) throws IOException {
         pair(w, 0, "SECTION"); pair(w, 2, "ENTITIES");
-        for (CADEntity e : entities) writeEntityR2000(w, e, enH);
+        for (CADEntity e : entities) writeEntityR2000(w, e, handles);
         pair(w, 0, "ENDSEC");
     }
 
-    private void writeEntityR2000(LineWriter w, CADEntity entity, int[] enH) throws IOException {
-        writeEntityR2000WithOwner(w, entity, H_MS_BR, enH);
+    private void writeEntityR2000(LineWriter w, CADEntity entity, HandleAllocator handles) throws IOException {
+        writeEntityR2000WithOwner(w, entity, H_MS_BR, handles);
     }
 
     private void writeEntityR2000WithOwner(LineWriter w, CADEntity entity,
-                                            String ownerBR, int[] enH) throws IOException {
+                                            String ownerBR, HandleAllocator handles) throws IOException {
         String type = entity.getType();
         Geometry geom = entity.geometry();
 
-        if ("TEXT".equals(type) && geom instanceof Point p)        writeTextR2000(w, p, entity, ownerBR, enH);
-        else if ("MTEXT".equals(type) && geom instanceof Point p)  writeMTextR2000(w, p, entity, ownerBR, enH);
-        else if ("ARC".equals(type) && geom instanceof Point p)    writeArcR2000(w, p, entity, ownerBR, enH);
-        else if ("CIRCLE".equals(type) && geom instanceof Point p) writeCircleR2000(w, p, entity, ownerBR, enH);
-        else if ("INSERT".equals(type) && geom instanceof Point p) writeInsertR2000(w, p, entity, ownerBR, enH);
-        else if ("DIMENSION".equals(type) && geom instanceof Point p) writeDimensionR2000(w, p, entity, ownerBR, enH);
+        if ("TEXT".equals(type) && geom instanceof Point p)        writeTextR2000(w, p, entity, ownerBR, handles);
+        else if ("MTEXT".equals(type) && geom instanceof Point p)  writeMTextR2000(w, p, entity, ownerBR, handles);
+        else if ("ARC".equals(type) && geom instanceof Point p)    writeArcR2000(w, p, entity, ownerBR, handles);
+        else if ("CIRCLE".equals(type) && geom instanceof Point p) writeCircleR2000(w, p, entity, ownerBR, handles);
+        else if ("INSERT".equals(type) && geom instanceof Point p) writeInsertR2000(w, p, entity, ownerBR, handles);
+        else if ("DIMENSION".equals(type) && geom instanceof Point p) writeDimensionR2000(w, p, entity, ownerBR, handles);
         else if (("LEADER".equals(type) || "MULTILEADER".equals(type)) && geom instanceof LineString ls)
-            writeLeaderR2000(w, ls, entity, ownerBR, enH);
-        else if ("ELLIPSE".equals(type) && geom instanceof Point p) writeEllipseR2000(w, p, entity, ownerBR, enH);
+            writeLeaderR2000(w, ls, entity, ownerBR, handles);
+        else if ("ELLIPSE".equals(type) && geom instanceof Point p) writeEllipseR2000(w, p, entity, ownerBR, handles);
         else if ("SOLID".equals(type) && (geom instanceof Polygon || geom instanceof LinearRing))
-            writeSolidR2000(w, geom, entity, ownerBR, enH);
+            writeSolidR2000(w, geom, entity, ownerBR, handles);
         else if ("3DFACE".equals(type) && (geom instanceof LinearRing || geom instanceof Polygon))
-            writeThreeDFaceR2000(w, geom, entity, ownerBR, enH);
-        else if ("SPLINE".equals(type) && geom instanceof LineString ls) writeSplineR2000(w, ls, entity, ownerBR, enH);
+            writeThreeDFaceR2000(w, geom, entity, ownerBR, handles);
+        else if ("SPLINE".equals(type) && geom instanceof LineString ls) writeSplineR2000(w, ls, entity, ownerBR, handles);
         else if ("HATCH".equals(type)) {
             // HATCH 可能对应多个多边形，各自写出后 XDATA 不追加（HATCH 不携带地物编码）
             if (geom instanceof Polygon poly)
-                writeHatchR2000(w, poly, entity, ownerBR, enH);
+                writeHatchR2000(w, poly, entity, ownerBR, handles);
             else if (geom instanceof MultiPolygon mp)
                 for (int i = 0; i < mp.getNumGeometries(); i++)
-                    writeHatchR2000(w, (Polygon) mp.getGeometryN(i), entity, ownerBR, enH);
+                    writeHatchR2000(w, (Polygon) mp.getGeometryN(i), entity, ownerBR, handles);
             return; // HATCH 不追加 XDATA
         }
-        else if (geom != null) writeGeomR2000(w, geom, entity, ownerBR, enH);
+        else if (geom != null) writeGeomR2000(w, geom, entity, ownerBR, handles);
         else return;
 
         // XDATA 必须在实体所有 group code 之后写出（DXF 规范要求）
@@ -774,27 +797,27 @@ public class DXFWriter {
     }
 
     private void writeGeomR2000(LineWriter w, Geometry geom, CADEntity e,
-                                 String ownerBR, int[] enH) throws IOException {
+                                 String ownerBR, HandleAllocator handles) throws IOException {
         if (geom instanceof Point p) {
-            writePointR2000(w, p, e, ownerBR, enH);
+            writePointR2000(w, p, e, ownerBR, handles);
         } else if (geom instanceof LinearRing lr) {
-            writeLwR2000(w, lr.getCoordinates(), true, e, ownerBR, enH);
+            writeLwR2000(w, lr.getCoordinates(), true, e, ownerBR, handles);
         } else if (geom instanceof LineString ls) {
             Coordinate[] cs = ls.getCoordinates();
-            if (cs.length == 2) writeLineR2000(w, ls, e, ownerBR, enH);
-            else                writeLwR2000(w, cs, false, e, ownerBR, enH);
+            if (cs.length == 2) writeLineR2000(w, ls, e, ownerBR, handles);
+            else                writeLwR2000(w, cs, false, e, ownerBR, handles);
         } else if (geom instanceof Polygon poly) {
-            writeLwR2000(w, poly.getExteriorRing().getCoordinates(), true, e, ownerBR, enH);
+            writeLwR2000(w, poly.getExteriorRing().getCoordinates(), true, e, ownerBR, handles);
             for (int i = 0; i < poly.getNumInteriorRing(); i++)
-                writeLwR2000(w, poly.getInteriorRingN(i).getCoordinates(), true, e, ownerBR, enH);
+                writeLwR2000(w, poly.getInteriorRingN(i).getCoordinates(), true, e, ownerBR, handles);
         } else if (geom instanceof GeometryCollection gc) {
             for (int i = 0; i < gc.getNumGeometries(); i++)
-                writeGeomR2000(w, gc.getGeometryN(i), e, ownerBR, enH);
+                writeGeomR2000(w, gc.getGeometryN(i), e, ownerBR, handles);
         }
     }
 
     private void writePointR2000(LineWriter w, Point p, CADEntity e,
-                                  String ownerBR, int[] h) throws IOException {
+                                  String ownerBR, HandleAllocator h) throws IOException {
         pair(w, 0, "POINT");
         writeR2000Common(w, e, ownerBR, h);
         pair(w, 100, "AcDbPoint");
@@ -802,7 +825,7 @@ public class DXFWriter {
     }
 
     private void writeLineR2000(LineWriter w, LineString ls, CADEntity e,
-                                 String ownerBR, int[] h) throws IOException {
+                                 String ownerBR, HandleAllocator h) throws IOException {
         Coordinate s = ls.getCoordinateN(0), t = ls.getCoordinateN(1);
         pair(w, 0, "LINE");
         writeR2000Common(w, e, ownerBR, h);
@@ -812,7 +835,7 @@ public class DXFWriter {
     }
 
     private void writeLwR2000(LineWriter w, Coordinate[] coords, boolean closed,
-                               CADEntity e, String ownerBR, int[] h) throws IOException {
+                               CADEntity e, String ownerBR, HandleAllocator h) throws IOException {
         int n = trimClosedEnd(coords, closed);
         if (n < 2) return;
         pair(w, 0, "LWPOLYLINE");
@@ -829,7 +852,7 @@ public class DXFWriter {
     }
 
     private void writeArcR2000(LineWriter w, Point center, CADEntity e,
-                                String ownerBR, int[] h) throws IOException {
+                                String ownerBR, HandleAllocator h) throws IOException {
         double radius = dblProp(e, "radius", 0.0);
         if (radius <= 0) return;
         double sa = dblProp(e, "startAngle", 0.0);
@@ -847,7 +870,7 @@ public class DXFWriter {
     }
 
     private void writeCircleR2000(LineWriter w, Point center, CADEntity e,
-                                   String ownerBR, int[] h) throws IOException {
+                                   String ownerBR, HandleAllocator h) throws IOException {
         double radius = dblProp(e, "radius", 0.0);
         if (radius <= 0) return;
         pair(w, 0, "CIRCLE");
@@ -859,7 +882,7 @@ public class DXFWriter {
     }
 
     private void writeHatchR2000(LineWriter w, Polygon poly, CADEntity e,
-                                  String ownerBR, int[] h) throws IOException {
+                                  String ownerBR, HandleAllocator h) throws IOException {
         String pattern = strPropOrDefault(e, "hatchPattern", "SOLID");
 
         // 预过滤无效环（避免 code 91 路径总数与实际写出数量不匹配导致结构损坏）
@@ -924,7 +947,7 @@ public class DXFWriter {
     }
 
     private void writeInsertR2000(LineWriter w, Point p, CADEntity e,
-                                   String ownerBR, int[] h) throws IOException {
+                                   String ownerBR, HandleAllocator h) throws IOException {
         String blockName = strProp(e, "blockName");
         if (blockName.isBlank()) return;
         pair(w, 0, "INSERT");
@@ -942,7 +965,7 @@ public class DXFWriter {
     }
 
     private void writeTextR2000(LineWriter w, Point p, CADEntity e,
-                                 String ownerBR, int[] h) throws IOException {
+                                 String ownerBR, HandleAllocator h) throws IOException {
         String text = strProp(e, "text");
         if (text.isBlank()) return;
         pair(w, 0, "TEXT");
@@ -950,7 +973,7 @@ public class DXFWriter {
         pair(w, 100, "AcDbText");
         pair(w, 10, fmt(p.getX())); pair(w, 20, fmt(p.getY())); pair(w, 30, fmtZ(p.getCoordinate().getZ()));
         pair(w, 40, fmt(dblProp(e, "height", 2.5)));
-        pair(w, 1, text);
+        pair(w, 1, singleLine(text));
         double rot = dblProp(e, "rotation", 0.0);
         if (Math.abs(rot) > GeometryConstants.ANGLE_EPS) pair(w, 50, fmt(rot));
         pair(w, 7, strPropOrDefault(e, "style", "Standard"));
@@ -958,7 +981,7 @@ public class DXFWriter {
     }
 
     private void writeMTextR2000(LineWriter w, Point p, CADEntity e,
-                                  String ownerBR, int[] h) throws IOException {
+                                  String ownerBR, HandleAllocator h) throws IOException {
         String text = strProp(e, "text");
         if (text.isBlank()) return;
         double width = dblProp(e, "mtextWidth", 0.0);
@@ -971,14 +994,14 @@ public class DXFWriter {
         pair(w, 41, fmt(width));
         pair(w, 71, String.valueOf(attachment));
         pair(w, 72, "5");
-        pair(w, 1, text);
+        pair(w, 1, mtextContent(text));
         double rot = dblProp(e, "rotation", 0.0);
         if (Math.abs(rot) > GeometryConstants.ANGLE_EPS) pair(w, 50, fmt(rot));
         pair(w, 7, strPropOrDefault(e, "style", "Standard"));
     }
 
     private void writeEllipseR2000(LineWriter w, Point center, CADEntity e,
-                                    String ownerBR, int[] h) throws IOException {
+                                    String ownerBR, HandleAllocator h) throws IOException {
         double mx = dblProp(e, "majorAxisX", 1.0);
         double my = dblProp(e, "majorAxisY", 0.0);
         double ratio = dblProp(e, "axisRatio", 1.0);
@@ -995,7 +1018,7 @@ public class DXFWriter {
     }
 
     private void writeSolidR2000(LineWriter w, Geometry geom, CADEntity e,
-                                  String ownerBR, int[] h) throws IOException {
+                                  String ownerBR, HandleAllocator h) throws IOException {
         Coordinate[] ring = (geom instanceof Polygon p)
                 ? p.getExteriorRing().getCoordinates()
                 : ((LinearRing) geom).getCoordinates();
@@ -1013,7 +1036,7 @@ public class DXFWriter {
     }
 
     private void writeThreeDFaceR2000(LineWriter w, Geometry geom, CADEntity e,
-                                       String ownerBR, int[] h) throws IOException {
+                                       String ownerBR, HandleAllocator h) throws IOException {
         Coordinate[] ring = (geom instanceof Polygon p)
                 ? p.getExteriorRing().getCoordinates()
                 : ((LinearRing) geom).getCoordinates();
@@ -1032,7 +1055,7 @@ public class DXFWriter {
     }
 
     private void writeSplineR2000(LineWriter w, LineString ls, CADEntity e,
-                                   String ownerBR, int[] h) throws IOException {
+                                   String ownerBR, HandleAllocator h) throws IOException {
         @SuppressWarnings("unchecked")
         List<double[]> ctrlPts = (List<double[]>) e.getProperties().get("controlPoints");
         int degree = 3;
@@ -1048,8 +1071,8 @@ public class DXFWriter {
     }
 
     /** R2007+ 实体公共头：handle + owner + AcDbEntity + 图层 + 颜色（XDATA 由各实体方法在末尾单独写出）。 */
-    private void writeR2000Common(LineWriter w, CADEntity e, String ownerBR, int[] h) throws IOException {
-        pair(w, 5, hex(h[0]++));
+    private void writeR2000Common(LineWriter w, CADEntity e, String ownerBR, HandleAllocator h) throws IOException {
+        pair(w, 5, h.next());
         pair(w, 330, ownerBR);
         pair(w, 100, "AcDbEntity");
         pair(w, 8, layerOf(e));
@@ -1099,7 +1122,7 @@ public class DXFWriter {
 
     /** 写出 DIMENSION 实体（R2007 路径）。 */
     private void writeDimensionR2000(LineWriter w, Point textPt, CADEntity e,
-                                      String ownerBR, int[] h) throws IOException {
+                                      String ownerBR, HandleAllocator h) throws IOException {
         int dimType  = intProp(e, "dimensionType", 1);
         String text  = strPropOrDefault(e, "text", "<>");
         double val   = dblProp(e, "dimensionValue", Double.NaN);
@@ -1162,7 +1185,7 @@ public class DXFWriter {
 
     /** 写出 LEADER 实体（R2007 路径）。 */
     private void writeLeaderR2000(LineWriter w, LineString ls, CADEntity e,
-                                   String ownerBR, int[] h) throws IOException {
+                                   String ownerBR, HandleAllocator h) throws IOException {
         Coordinate[] coords = ls.getCoordinates();
         if (coords.length < 2) return;
         int arrowType = intProp(e, "leaderArrowType", 1);
@@ -1343,13 +1366,39 @@ public class DXFWriter {
 
     private String fmt(double v) {
         if (Math.abs(v) >= 1e15 || (v != 0.0 && Math.abs(v) < 1e-9))
-            return String.format("%.15E", v);
-        return String.format(fmtPattern, v); // 使用预计算的格式串
+            return String.format(Locale.ROOT, "%.15E", v);
+        return String.format(Locale.ROOT, fmtPattern, v); // 使用预计算的格式串
     }
 
     private String fmtZ(double z) { return Double.isNaN(z) ? fmt(0.0) : fmt(z); }
 
-    private static String hex(int n) { return Integer.toHexString(n).toUpperCase(); }
+    /**
+     * MTEXT 内容写出前的转义（text 属性按纯文本处理）：
+     * {@code \} 与花括号转义，真实换行转 {@code \P}——DXF 的 group value 不能含裸换行，
+     * 否则整份文件结构损坏。
+     */
+    static String mtextContent(String text) {
+        StringBuilder sb = new StringBuilder(text.length() + 8);
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            switch (c) {
+                case '\r' -> {
+                    if (i + 1 >= text.length() || text.charAt(i + 1) != '\n') sb.append("\\P");
+                }
+                case '\n' -> sb.append("\\P");
+                case '\\', '{', '}' -> sb.append('\\').append(c);
+                default -> sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /** TEXT 为单行实体，换行压成空格。 */
+    static String singleLine(String text) {
+        return text.replace('\r', ' ').replace('\n', ' ');
+    }
+
+    private static String hex(int n) { return Integer.toHexString(n).toUpperCase(Locale.ROOT); }
 
     private static int intProp(CADEntity e, String key, int def) {
         Object v = e.getProperties().get(key);

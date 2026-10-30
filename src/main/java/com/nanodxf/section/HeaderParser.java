@@ -1,5 +1,7 @@
 package com.nanodxf.section;
 
+import com.nanodxf.ParseError;
+import com.nanodxf.ParseErrorLevel;
 import com.nanodxf.core.DXFReader;
 import com.nanodxf.core.GroupCodePair;
 import com.nanodxf.model.DXFContext;
@@ -39,10 +41,35 @@ public class HeaderParser {
 
             switch (currentVar) {
                 case "$ACADVER"         -> ctx.metadata.setVersion(DXFVersion.fromString(pair.value()));
-                case "$INSUNITS"        -> ctx.metadata.setInsunits(pair.asInt());
-                case "$MEASUREMENT"     -> ctx.metadata.setMeasurement(pair.asInt() == 1);
-                case "$CONTOURINTERVAL" -> ctx.metadata.setContourInterval(pair.asDouble());
+                case "$INSUNITS"        -> ctx.metadata.setInsunits(asInt(ctx, currentVar, pair));
+                case "$MEASUREMENT"     -> ctx.metadata.setMeasurement(asInt(ctx, currentVar, pair) == 1);
+                case "$CONTOURINTERVAL" -> ctx.metadata.setContourInterval(asDouble(ctx, currentVar, pair));
             }
         }
+    }
+
+    /** 解析整数变量；格式错误时记录 WARN 并返回 0，不中断整段解析。 */
+    private static int asInt(DXFContext ctx, String var, GroupCodePair pair) {
+        try {
+            return pair.asInt();
+        } catch (NumberFormatException e) {
+            warn(ctx, var, pair);
+            return 0;
+        }
+    }
+
+    /** 解析浮点变量；格式错误时记录 WARN 并返回 0，不中断整段解析。 */
+    private static double asDouble(DXFContext ctx, String var, GroupCodePair pair) {
+        try {
+            return pair.asDouble();
+        } catch (NumberFormatException e) {
+            warn(ctx, var, pair);
+            return 0;
+        }
+    }
+
+    private static void warn(DXFContext ctx, String var, GroupCodePair pair) {
+        ctx.errors.add(new ParseError(ParseErrorLevel.WARN, "HEADER", "",
+                "变量 " + var + " 的数值格式非法，已使用默认值：" + pair.value()));
     }
 }

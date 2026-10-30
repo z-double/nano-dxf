@@ -1,5 +1,7 @@
 package com.nanodxf.entity.handler;
 
+import com.nanodxf.ParseError;
+import com.nanodxf.ParseErrorLevel;
 import com.nanodxf.entity.CADEntity;
 import com.nanodxf.entity.EntityBuffer;
 import com.nanodxf.entity.EntityHandler;
@@ -33,6 +35,11 @@ import java.util.Map;
  * <p><b>循环引用检测</b>：使用路径集合（{@link Deque}）而非深度计数——
  * 路径集合能检测 A→B→A 这类只有 2 层但真正循环的引用；深度计数只能捕获超深嵌套。
  * 同时保留深度 ≤ 16 的保护（防文件损坏导致的异常递归）。
+ *
+ * <p><b>展开总量预算</b>：单个 INSERT 最多展开
+ * {@link com.nanodxf.ParseConfig#getMaxInsertEntities()} 条实体（默认 100000）。
+ * 块嵌套的扇出是乘性的，没有总量上限时损坏文件可造成指数级膨胀与 OOM；
+ * 触及上限即停止并记录 WARN，已展开的部分仍然返回。
  *
  * <p><b>坐标变换公式</b>（2D 仿射 + Z 缩放）：
  * <pre>
@@ -78,15 +85,40 @@ public class InsertHandler implements EntityHandler {
             return List.of(buildFallback(handle, layer, blockName, ix, iy, iz, sx, sy, rot, attributes));
         }
 
-        // 递归展开
+        // 递归展开（带总量预算）
+        ExpansionState state = new ExpansionState(ctx.config.getMaxInsertEntities());
         List<CADEntity> result = expandBlock(
-            block, handle, layer, sx, sy, sz, rot, ix, iy, iz, attributes, ctx, new ArrayDeque<>());
+            block, handle, layer, sx, sy, sz, rot, ix, iy, iz, attributes, ctx, new ArrayDeque<>(), state);
 
-        // 若展开结果为空（全部被过滤/循环引用）也退化为插入点
-        if (result.isEmpty()) {
+        if (state.truncated) {
+            ctx.errors.add(new ParseError(ParseErrorLevel.WARN, "INSERT", handle,
+                    "块 \"" + blockName + "\" 展开实体数超过上限 " + state.limit + "，已截断"));
+        }
+
+        // 若展开结果为空（全部被过滤/循环引用）也退化为插入点；因超限截断时不退化
+        if (result.isEmpty() && !state.truncated) {
             return List.of(buildFallback(handle, layer, blockName, ix, iy, iz, sx, sy, rot, attributes));
         }
         return result;
+    }
+
+    /** 单次 INSERT 展开的实体计数预算。 */
+    private static final class ExpansionState {
+        final int limit;
+        int remaining;
+        boolean truncated;
+
+        ExpansionState(int limit) {
+            this.limit = limit;
+            this.remaining = limit;
+        }
+
+        /** 申请一个实体配额；预算耗尽时置 truncated 并返回 false。 */
+        boolean consume() {
+            if (remaining <= 0) { truncated = true; return false; }
+            remaining--;
+            return true;
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -105,13 +137,15 @@ public class InsertHandler implements EntityHandler {
      * @param attributes ATTRIB 属性 map（注入到文字类实体）
      * @param ctx        解析上下文（用于查找嵌套块）
      * @param path       当前展开路径（循环引用检测）
+     * @param state      本次 INSERT 展开的实体配额
      */
     private List<CADEntity> expandBlock(CADBlock block, String parentHandle,
                                          String insertLayer,
                                          double sx, double sy, double sz,
                                          double rot, double ix, double iy, double iz,
                                          Map<String, String> attributes,
-                                         DXFContext ctx, Deque<String> path) {
+                                         DXFContext ctx, Deque<String> path,
+                                         ExpansionState state) {
         // 循环引用检测：路径中已存在此块名 → 跳过
         if (path.contains(block.getName())) {
             return List.of();
@@ -129,7 +163,8 @@ public class InsertHandler implements EntityHandler {
                 if ("INSERT".equals(entity.getType())) {
                     // 递归展开嵌套 INSERT（使用占位实体中保存的变换参数）
                     result.addAll(expandNestedInsert(entity, parentHandle, insertLayer,
-                        sx, sy, sz, rot, ix, iy, iz, attributes, ctx, path));
+                        sx, sy, sz, rot, ix, iy, iz, attributes, ctx, path, state));
+                    if (state.truncated) return result;
                 } else {
                     // 普通实体：应用仿射变换
                     Geometry transformed = applyTransform(entity.geometry(), sx, sy, sz, rot, ix, iy, iz);
@@ -150,6 +185,7 @@ public class InsertHandler implements EntityHandler {
                         b.property("insertAttributes", attributes);
                     }
 
+                    if (!state.consume()) return result;
                     result.add(b.build());
                 }
             }
@@ -168,7 +204,8 @@ public class InsertHandler implements EntityHandler {
                                                 double outerSX, double outerSY, double outerSZ,
                                                 double outerRot, double outerIX, double outerIY, double outerIZ,
                                                 Map<String, String> attributes,
-                                                DXFContext ctx, Deque<String> path) {
+                                                DXFContext ctx, Deque<String> path,
+                                                ExpansionState state) {
         String nestedName = (String) placeholder.getProperties().get("blockName");
         if (nestedName == null) return List.of();
 
@@ -198,7 +235,7 @@ public class InsertHandler implements EntityHandler {
         return expandBlock(nested, parentHandle, insertLayer,
             composedSX, composedSY, composedSZ, composedRot,
             transformed[0], transformed[1], transformed[2],
-            attributes, ctx, path);
+            attributes, ctx, path, state);
     }
 
     // -------------------------------------------------------------------------

@@ -70,6 +70,13 @@ public class ParseConfig {
      */
     private final Charset encoding;
 
+    /**
+     * 单个 INSERT 递归展开产出的实体数上限，默认 100000。
+     * 块嵌套的扇出是乘性的（每层再引用多个块），损坏或恶意文件可导致指数级实体膨胀；
+     * 触及上限时停止展开并在 {@code errors} 中记录 WARN。
+     */
+    private final int maxInsertEntities;
+
     private ParseConfig(Builder builder) {
         this.arcTolerance = builder.arcTolerance;
         this.proximityThreshold = builder.proximityThreshold;
@@ -84,6 +91,7 @@ public class ParseConfig {
         this.includeTypes = builder.includeTypes == null ? null
                 : Collections.unmodifiableSet(toUpperSet(builder.includeTypes));
         this.encoding = builder.encoding;
+        this.maxInsertEntities = builder.maxInsertEntities;
     }
 
     public double getArcTolerance() { return arcTolerance; }
@@ -96,6 +104,7 @@ public class ParseConfig {
     public Set<String> getExcludeLayers() { return excludeLayers; }
     public Set<String> getIncludeTypes()  { return includeTypes; }
     public Charset getEncoding()          { return encoding; }
+    public int getMaxInsertEntities()     { return maxInsertEntities; }
 
     /**
      * 根据当前过滤配置判断指定图层 + 类型的实体是否应被解析。
@@ -135,6 +144,7 @@ public class ParseConfig {
         private Set<String> excludeLayers = null;
         private Set<String> includeTypes  = null;
         private Charset encoding = null;
+        private int maxInsertEntities = 100_000;
 
         /**
          * 弧线/样条离散弦高误差（坐标单位），必须 &gt; 0，默认 0.001。
@@ -211,6 +221,15 @@ public class ParseConfig {
          */
         public Builder encoding(Charset encoding) {
             this.encoding = encoding; return this;
+        }
+
+        /**
+         * 单个 INSERT 递归展开产出的实体数上限，必须 &gt; 0，默认 100000。
+         * 触及上限时停止展开并记录 WARN，防止块嵌套扇出导致内存失控。
+         */
+        public Builder maxInsertEntities(int v) {
+            if (v <= 0) throw new IllegalArgumentException("maxInsertEntities 必须 > 0，当前值：" + v);
+            this.maxInsertEntities = v; return this;
         }
 
         /** 强制指定文件编码（编码名称），如 {@code "GB18030"}、{@code "UTF-8"}。 */

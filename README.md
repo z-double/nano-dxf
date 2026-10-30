@@ -10,14 +10,14 @@
 
 - **全主流实体解析**：LINE / ARC / CIRCLE / ELLIPSE / POINT / TEXT / MTEXT / LWPOLYLINE / POLYLINE / SPLINE / HATCH / INSERT / 3DFACE / SOLID / DIMENSION / LEADER / MULTILEADER / ATTDEF
 - **OCS/WCS 坐标变换**：自动应用任意轴算法（Arbitrary Axis Algorithm），正确还原三维/旋转实体坐标（v1.6.0）
-- **INSERT 块递归展开**：仿射变换（缩放 → 旋转 → 平移）、路径集合循环引用检测
+- **INSERT 块递归展开**：仿射变换（缩放 → 旋转 → 平移）、路径集合循环引用检测；单次展开受 `maxInsertEntities` 总量预算保护（v1.8.0，默认 10 万）
 - **国内测绘软件适配**：CASS / EPS / MapMatrix / MapGIS / SuperMap XDATA 地物编码提取，内置约 80 条 GB/T 20257 映射
 - **BYLAYER 颜色继承**：ACI 256 色表 → 图层颜色 → 实体颜色完整链路
 - **编码自适应**：UTF-8 BOM → juniversalchardet 检测 → 版本号推断 → GBK 兜底；支持 `ParseConfig.encoding(...)` 强制覆盖（v1.7.2）
-- **容错解析**：截断文件、损坏实体、未知实体类型均不中断，错误分级收集（FATAL / WARN / INFO）
+- **容错解析**：截断文件、损坏实体、未知实体类型均不中断；实体级异常隔离 + 段级失败降级（v1.7.3），错误分级收集（FATAL / WARN / INFO）
 - **解析过滤**：`includeLayers` / `excludeLayers` / `includeTypes`，大文件按需跳过无关图层（v1.6.0）
 - **多格式输出**：GeoJSON、Shapefile（2D/3D）、GeoPackage、**SVG**（v1.6.0，零依赖矢量预览）
-- **DXF 写出**：16 种实体类型 + 块定义，R12 / R2007 双路径，浩辰 CAD / AutoCAD 验证通过
+- **DXF 写出**：16 种实体类型 + 块定义，R12 / R2007 双路径，浩辰 CAD / AutoCAD 验证通过；句柄全局唯一分配 + `$HANDSEED` 动态计算（v1.8.0）
 - **流式解析 API**：`parseStream(Path)` 两阶段惰性流，大文件低内存占用
 - **测绘专项 API**：`ContourHelper`（等高线分组/验证）、`ElevationAnnotation`（高程点注记配对）（v1.6.0）
 - **拓扑检查 API**：`TopologyChecker` 5 条规则（重复实体/自相交/零长度/悬挂端点/等高线交叉），零额外依赖（v1.6.0）
@@ -40,7 +40,7 @@
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.7.2</version>
+    <version>1.8.0</version>
 </dependency>
 ```
 
@@ -108,6 +108,7 @@ Files.writeString(Paths.get("output.geojson"), geojson);
 | `includeLayers` / `excludeLayers` | null | 图层白/黑名单（大小写不敏感） |
 | `includeTypes` | null | 实体类型白名单 |
 | `applyUnitConversion` | true | 是否按 `$INSUNITS` 换算为米 |
+| `maxInsertEntities` | 100000 | 单个 INSERT 展开的实体总量上限（v1.8.0），超限截断并记录 WARN |
 
 ### ParseResult
 
@@ -201,7 +202,7 @@ ShapefileWriteConfig cfg = ShapefileWriteConfig.builder()
     // .dimension(ShapefileWriteConfig.ShapeDimension.AUTO)  // 默认：有 Z 自动写 PointZ/PolylineZ/PolygonZ
     .build();
 
-// 输出：output.shp + output.shx + output.dbf + output.prj
+// 输出：output.shp + output.shx + output.dbf + output.cpg + output.prj
 new ShapefileWriter(cfg).write(result.getEntities(), Paths.get("output.shp"));
 ```
 
@@ -282,6 +283,7 @@ entities.add(CADEntity.builder(CADEntity.Types.SPLINE)
 | `version` | `R2007` | 输出版本（`R12` 或 `R2007`） |
 | `encoding` | 自动 | R2007+ 默认 UTF-8，其他默认 GBK；含中文内容建议显式指定 GBK |
 | `coordinateDecimalPlaces` | `4` | 坐标小数位数（0~15） |
+| `insunits` | `6` | 写入 HEADER 的 `$INSUNITS`（0=无单位，4=毫米，6=米）（v1.8.0） |
 
 ### 支持输出的实体类型
 
@@ -309,7 +311,7 @@ entities.add(CADEntity.builder(CADEntity.Types.SPLINE)
 |---|---|---|
 | `colorAci` | `Integer` | ACI 颜色号（同时写入图层颜色） |
 | `colorRgb` | `int[3]` | True Color（仅 R2004+，code 420） |
-| `text` | `String` | TEXT / MTEXT 文字内容 |
+| `text` | `String` | TEXT / MTEXT 文字内容；MTEXT 换行与字面量 `\` `{` `}` 自动转义，解析后可原样还原（v1.8.0） |
 | `height` | `Double` | 文字高度（默认 2.5） |
 | `rotation` | `Double` | 文字旋转角度（度，默认 0） |
 | `style` | `String` | TEXT 文字样式（默认 "Standard"） |

@@ -72,7 +72,7 @@ public class SvgWriter {
 
         StringBuilder sb = new StringBuilder();
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-        sb.append(String.format(
+        sb.append(String.format(Locale.ROOT,
                 "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\" " +
                 "viewBox=\"%.6f %.6f %.6f %.6f\">\n",
                 svgW, svgH,
@@ -80,7 +80,7 @@ public class SvgWriter {
 
         // 背景矩形
         if (config.getBackground() != null) {
-            sb.append(String.format(
+            sb.append(String.format(Locale.ROOT,
                     "  <rect x=\"%.6f\" y=\"%.6f\" width=\"%.6f\" height=\"%.6f\" fill=\"%s\"/>\n",
                     vxMin, -(vyMin + vHeight), vWidth, vHeight,
                     escapeAttr(config.getBackground())));
@@ -139,7 +139,7 @@ public class SvgWriter {
     }
 
     private void renderPoint(Point pt, String color, StringBuilder sb) {
-        sb.append(String.format(
+        sb.append(String.format(Locale.ROOT,
                 "      <circle cx=\"%.6f\" cy=\"%.6f\" r=\"%.4f\" fill=\"%s\" stroke=\"none\"/>\n",
                 pt.getX(), pt.getY(),
                 config.getPointRadiusPx(),
@@ -147,7 +147,7 @@ public class SvgWriter {
     }
 
     private void renderLineString(LineString ls, String color, StringBuilder sb) {
-        sb.append(String.format(
+        sb.append(String.format(Locale.ROOT,
                 "      <polyline points=\"%s\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.4f\"/>\n",
                 coordsToPoints(ls.getCoordinates()),
                 color,
@@ -155,7 +155,7 @@ public class SvgWriter {
     }
 
     private void renderLinearRing(LinearRing ring, String color, StringBuilder sb) {
-        sb.append(String.format(
+        sb.append(String.format(Locale.ROOT,
                 "      <polygon points=\"%s\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.4f\"/>\n",
                 coordsToPoints(ring.getCoordinates()),
                 color,
@@ -169,7 +169,7 @@ public class SvgWriter {
         for (int i = 0; i < poly.getNumInteriorRing(); i++) {
             appendRingPath(d, poly.getInteriorRingN(i).getCoordinates());
         }
-        sb.append(String.format(
+        sb.append(String.format(Locale.ROOT,
                 "      <path d=\"%s\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.4f\" fill-rule=\"evenodd\"/>\n",
                 d.toString().trim(),
                 color,
@@ -178,9 +178,9 @@ public class SvgWriter {
 
     private static void appendRingPath(StringBuilder d, Coordinate[] coords) {
         if (coords.length == 0) return;
-        d.append(String.format("M %.6f %.6f", coords[0].x, coords[0].y));
+        d.append(String.format(Locale.ROOT, "M %.6f %.6f", coords[0].x, coords[0].y));
         for (int i = 1; i < coords.length; i++) {
-            d.append(String.format(" L %.6f %.6f", coords[i].x, coords[i].y));
+            d.append(String.format(Locale.ROOT, " L %.6f %.6f", coords[i].x, coords[i].y));
         }
         d.append(" Z ");
     }
@@ -242,7 +242,7 @@ public class SvgWriter {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < coords.length; i++) {
             if (i > 0) sb.append(' ');
-            sb.append(String.format("%.6f,%.6f", coords[i].x, coords[i].y));
+            sb.append(String.format(Locale.ROOT, "%.6f,%.6f", coords[i].x, coords[i].y));
         }
         return sb.toString();
     }

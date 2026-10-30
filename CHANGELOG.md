@@ -5,6 +5,37 @@
 
 ---
 
+## [1.8.0] - 2026-10-29
+
+### 修复
+
+- **R2007 写出句柄跨段冲突**：此前用户线型（`0xA0+`）、图层（`0x10+`）、用户块记录（`0x200+`）、块内实体（`0x300+`）、主实体（`0x100+`）各自独立编号，实体或块数量较大时会生成重复 handle，导致 CAD 打开报"句柄重复"或丢失实体。现改为统一由 `HandleAllocator` 从 `0x100` 起单计数器分配，所有句柄全局唯一。
+- **`$HANDSEED` 硬编码**：HEADER 中固定写 `2000`，实体数超过约 7900 时小于实际最大句柄。现按图层/线型/块/实体数量动态估算上界并写入。
+- **MTEXT 换行与转义字符写出**：`text` 属性中的裸换行会破坏 group value 结构（DXF 每个值必须单行），字面量 `\`、`{`、`}` 也会被读取端误判为控制码。写出时换行转 `\P`、字面量转义为 `\\` / `\{` / `\}`；`MTextCleaner` 增加对应反转义（私有区占位符保护），实现 MTEXT 文本写出→解析原样还原。
+
+### 新增
+
+- **`DXFWriteConfig.insunits(int)`**：写入 HEADER 的 `$INSUNITS`，默认 `6`（米），可选 `4`（毫米）等 0~20 的 DXF 单位码。
+- **`ParseConfig.maxInsertEntities(int)`**：单个 INSERT 递归展开的实体总量上限，默认 100000。块嵌套的扇出是乘性的，达到上限即停止展开并记录 `WARN`，已展开部分照常返回（不再退化为插入点）。
+
+---
+
+## [1.7.3] - 2026-10-29
+
+### 修复
+
+- **单条坏实体中断整份解析**：`EntityDispatcher.dispatch` 此前未捕获 handler 异常，一个格式非法的 group code（如 `LWPOLYLINE` 的坐标写成 `abc`）会让整个 `parse()` 抛出 `NumberFormatException`。现改为捕获 `RuntimeException`、记录 `WARN` 级 `ParseError`（含实体类型与 handle）后跳过该实体，其余实体正常解析。
+- **段级失败中断整份解析**：`CADParser` 对 section 解析器增加异常隔离，单段失败记录 `WARN` 并继续扫描下一段；`HeaderParser` 的 `$INSUNITS` / `$MEASUREMENT` / `$CONTOURINTERVAL` 数值格式非法时使用默认值并告警。
+- **输出受 JVM 默认 Locale 影响**：`DXFWriter`、`GeoJsonSerializer`、`SvgWriter`、`ShapefileWriter` 中所有数值格式化补齐 `Locale.ROOT`，修复德语等区域设置下坐标被写成 `1234,5678`（GeoJSON 非法、DXF/DBF 数值错误）的问题。GeoJSON 坐标遇 NaN/Infinity 时输出 `null` 而非非法数字字面量。
+- **DBF 中文字段被截断成半个字符**：`ShapefileWriter` 的字段写入改为按字符边界截断，中文长文本不再在末尾产生无效字节序列；同时新增 `.cpg` 文件声明 DBF 编码，避免 GIS 软件按系统编码误读导致乱码。
+- **圆弧离散采样失控**：`Discretizer.arc` 的采样段数限制在 `[8, 2000]`，并对 `tolerance/r` 做钳制，避免大半径 + 极小容差生成的百万级点列以及 `acos` 参数越界。
+
+### 变更
+
+- 容错行为变更：handler 抛错时返回空列表（`dispatch` 仍以 `null` 表示"类型未注册"，语义不变）。
+
+---
+
 ## [1.7.2] - 2026-10-28
 
 ### 新增

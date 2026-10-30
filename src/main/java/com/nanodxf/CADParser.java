@@ -15,6 +15,8 @@ import java.io.IOException;
 import java.io.Reader;
 import java.nio.file.Path;
 import java.util.Spliterator;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -44,6 +46,7 @@ import java.util.stream.StreamSupport;
  */
 public class CADParser {
 
+    private static final Logger LOG = Logger.getLogger(CADParser.class.getName());
     private static final UnitConverter UNIT_CONVERTER = new UnitConverter();
 
     private final ParseConfig config;
@@ -117,7 +120,7 @@ public class CADParser {
                             atEntities = true;
                             break;
                         }
-                        dispatcher.dispatch(sectionName, reader, ctx);
+                        dispatchSection(sectionName, reader, ctx);
                     }
                 }
             }
@@ -148,6 +151,22 @@ public class CADParser {
         }
     }
 
+    /**
+     * 分发单个 section，段解析器的运行时异常被隔离为 WARN 错误。
+     * 段解析失败后 reader 停在异常位置，外层继续扫描下一个 SECTION 边界。
+     */
+    private void dispatchSection(String sectionName, DXFReader reader, DXFContext ctx)
+            throws IOException {
+        try {
+            dispatcher.dispatch(sectionName, reader, ctx);
+        } catch (RuntimeException e) {
+            ctx.errors.add(new ParseError(ParseErrorLevel.WARN, sectionName, "",
+                    "段解析失败，已跳过：" + e.getClass().getSimpleName()
+                            + (e.getMessage() != null ? ": " + e.getMessage() : "")));
+            LOG.log(Level.FINE, "段解析失败，已跳过: " + sectionName, e);
+        }
+    }
+
     private ParseResult doParse(DXFReader reader) throws IOException {
         long startMs = System.currentTimeMillis();
         DXFContext ctx = new DXFContext(config);
@@ -164,7 +183,7 @@ public class CADParser {
             if (pair.code() == 0 && "SECTION".equals(pair.value())) {
                 GroupCodePair namePair = reader.next();
                 if (namePair != null && namePair.code() == 2) {
-                    dispatcher.dispatch(namePair.value(), reader, ctx);
+                    dispatchSection(namePair.value(), reader, ctx);
                 }
             }
         }

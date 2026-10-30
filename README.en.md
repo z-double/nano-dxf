@@ -10,14 +10,14 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 
 - **All major entity types**: LINE / ARC / CIRCLE / ELLIPSE / POINT / TEXT / MTEXT / LWPOLYLINE / POLYLINE / SPLINE / HATCH / INSERT / 3DFACE / SOLID / DIMENSION / LEADER / MULTILEADER / ATTDEF / MLINE / WIPEOUT / IMAGE / TOLERANCE
 - **OCS/WCS coordinate transform**: Arbitrary Axis Algorithm, correctly restores 3D/rotated entity coordinates (v1.6.0)
-- **Recursive INSERT expansion**: affine transform (scale → rotate → translate), path-set cycle detection
+- **Recursive INSERT expansion**: affine transform (scale → rotate → translate), path-set cycle detection, per-INSERT entity budget `maxInsertEntities` (v1.8.0, default 100k)
 - **Chinese surveying software support**: CASS / EPS / MapMatrix / MapGIS / SuperMap XDATA feature code extraction, ~80 built-in GB/T 20257 mappings
 - **BYLAYER color inheritance**: ACI 256-color table → layer color → entity color full chain
 - **Auto encoding detection**: UTF-8 BOM → juniversalchardet → version inference → GBK fallback; `ParseConfig.encoding(...)` for explicit override (v1.7.2)
-- **Fault-tolerant parsing**: truncated files, corrupted entities, unknown entity types never abort parsing; errors collected with severity levels (FATAL / WARN / INFO)
+- **Fault-tolerant parsing**: truncated files, corrupted entities, unknown entity types never abort parsing; per-entity isolation + per-section degradation (v1.7.3); errors collected with severity levels (FATAL / WARN / INFO)
 - **Parse filtering**: `includeLayers` / `excludeLayers` / `includeTypes`, skip irrelevant layers on large files (v1.6.0)
 - **Multiple output formats**: GeoJSON, Shapefile (2D/3D), GeoPackage, SVG (v1.6.0, zero-dependency vector preview), point-cloud CSV (v1.7.0), ESRI ASCII Grid DEM (v1.7.0)
-- **DXF write**: 16 entity types + block definitions, R12 / R2007 dual-path, verified with GstarCAD / AutoCAD
+- **DXF write**: 16 entity types + block definitions, R12 / R2007 dual-path, verified with GstarCAD / AutoCAD; globally unique handles + dynamic `$HANDSEED` (v1.8.0)
 - **Streaming parse API**: `parseStream(Path)` two-phase lazy stream, low memory for large files
 - **Spatial index**: `EntityIndex` (JTS STRtree), `query(Envelope)` / `byLayer` / `byType` (v1.5.0)
 - **Surveying API**: `ContourHelper` (contour grouping/validation), `ElevationAnnotation` (elevation annotation matching) (v1.6.0)
@@ -40,7 +40,7 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.7.2</version>
+    <version>1.8.0</version>
 </dependency>
 ```
 

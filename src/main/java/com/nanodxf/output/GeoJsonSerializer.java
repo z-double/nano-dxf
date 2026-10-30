@@ -6,6 +6,7 @@ import com.nanodxf.xdata.XDataEntry;
 import org.locationtech.jts.geom.*;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -177,7 +178,7 @@ public class GeoJsonSerializer {
     private void appendCoord(StringBuilder sb, Coordinate c) {
         sb.append('[').append(fmt(c.x)).append(',').append(fmt(c.y));
         double z = c.getZ();
-        if (!Double.isNaN(z)) sb.append(',').append(fmt(z));
+        if (Double.isFinite(z)) sb.append(',').append(fmt(z));
         sb.append(']');
     }
 
@@ -256,9 +257,10 @@ public class GeoJsonSerializer {
     // 工具方法
     // -------------------------------------------------------------------------
 
-    /** 坐标格式化，指定小数位，避免浮点噪声。 */
+    /** 坐标格式化，指定小数位，避免浮点噪声。固定 Locale.ROOT 保证小数点恒为 "."。 */
     private String fmt(double v) {
-        return String.format("%." + coordinateDecimalPlaces + "f", v);
+        if (!Double.isFinite(v)) return "null"; // NaN/Infinity 不能出现在 JSON 数字中
+        return String.format(Locale.ROOT, "%." + coordinateDecimalPlaces + "f", v);
     }
 
     /** JSON 字符串转义（处理 \、"、换行、制表等控制字符）。 */
@@ -274,7 +276,7 @@ public class GeoJsonSerializer {
                 case '\r' -> sb.append("\\r");
                 case '\t' -> sb.append("\\t");
                 default   -> {
-                    if (c < 0x20) sb.append(String.format("\\u%04x", (int) c));
+                    if (c < 0x20) sb.append(String.format(Locale.ROOT, "\\u%04x", (int) c));
                     else sb.append(c);
                 }
             }

@@ -1,5 +1,7 @@
 package com.nanodxf.entity;
 
+import com.nanodxf.ParseError;
+import com.nanodxf.ParseErrorLevel;
 import com.nanodxf.entity.handler.*;
 import com.nanodxf.model.DXFContext;
 
@@ -7,6 +9,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * 根据实体类型字符串将 EntityBuffer 分发到对应的 {@link EntityHandler}。
@@ -24,8 +28,13 @@ import java.util.ServiceLoader;
  *   <li>非 null 列表 — handler 正常调用结果（可为空列表）</li>
  *   <li>null — 实体类型未注册（调用方负责记录到 skippedEntityTypes）</li>
  * </ul>
+ *
+ * <p><b>容错</b>：handler 抛出的 {@link RuntimeException} 会被拦截，记录为
+ * {@link ParseErrorLevel#WARN} 并返回空列表，单条坏实体不会中断整份文件的解析。
  */
 public class EntityDispatcher {
+
+    private static final Logger LOG = Logger.getLogger(EntityDispatcher.class.getName());
 
     private final Map<String, EntityHandler> handlers = new HashMap<>();
 
@@ -85,7 +94,16 @@ public class EntityDispatcher {
     public List<CADEntity> dispatch(String entityType, EntityBuffer buffer, DXFContext ctx) {
         EntityHandler handler = handlers.get(entityType.toUpperCase());
         if (handler == null) return null; // 未注册类型
-        return handler.handle(buffer, ctx);
+        try {
+            return handler.handle(buffer, ctx);
+        } catch (RuntimeException e) {
+            String handle = buffer.getString(5, "");
+            ctx.errors.add(new ParseError(ParseErrorLevel.WARN, entityType, handle,
+                    "实体解析失败，已跳过：" + e.getClass().getSimpleName()
+                            + (e.getMessage() != null ? ": " + e.getMessage() : "")));
+            LOG.log(Level.FINE, "实体解析失败，已跳过: " + entityType + " handle=" + handle, e);
+            return List.of();
+        }
     }
 
     /** 检查指定实体类型是否已注册（含注册为 SKIP 的类型）。 */
