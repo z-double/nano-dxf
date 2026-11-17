@@ -41,13 +41,14 @@ import java.util.Map;
  * 块嵌套的扇出是乘性的，没有总量上限时损坏文件可造成指数级膨胀与 OOM；
  * 触及上限即停止并记录 WARN，已展开的部分仍然返回。
  *
- * <p><b>坐标变换公式</b>（2D 仿射 + Z 缩放）：
+ * <p><b>坐标变换公式</b>（Scale → Rotate → Translate，块基点参与变换）：
  * <pre>
  *   double rad = Math.toRadians(rotation);
- *   x' = scaleX * (x * cos - y * sin) + insertX
- *   y' = scaleY * (x * sin + y * cos) + insertY
- *   z' = scaleZ * z + insertZ
+ *   x' = (x - baseX) * scaleX * cos - (y - baseY) * scaleY * sin + insertX
+ *   y' = (x - baseX) * scaleX * sin + (y - baseY) * scaleY * cos + insertY
+ *   z' = (z - baseZ) * scaleZ + insertZ
  * </pre>
+ * 其中 baseX/baseY/baseZ 为 BLOCK 头部的基点（code 10/20/30）。
  *
  * <p>块定义中 INSERT 的变换采用<b>占位策略</b>：
  * {@link com.nanodxf.section.BlocksParser} 在解析 BLOCKS 段时，遇到 INSERT 不展开，
@@ -157,17 +158,26 @@ public class InsertHandler implements EntityHandler {
 
         path.push(block.getName());
         try {
+            // 块基点折算为等效平移：world = R·S·(p − base) + insert = R·S·p + (insert − R·S·base)
+            // 块内普通实体与嵌套 INSERT 的插入点同处块坐标系，共用此变换
+            double bx = block.getInsertX(), by = block.getInsertY(), bz = block.getInsertZ();
+            double rad = Math.toRadians(rot);
+            double cos = Math.cos(rad), sin = Math.sin(rad);
+            double tx = ix - (sx * bx * cos - sy * by * sin);
+            double ty = iy - (sx * bx * sin + sy * by * cos);
+            double tz = iz - sz * bz;
+
             List<CADEntity> result = new ArrayList<>();
 
             for (CADEntity entity : block.entities()) {
                 if ("INSERT".equals(entity.getType())) {
                     // 递归展开嵌套 INSERT（使用占位实体中保存的变换参数）
                     result.addAll(expandNestedInsert(entity, parentHandle, insertLayer,
-                        sx, sy, sz, rot, ix, iy, iz, attributes, ctx, path, state));
+                        sx, sy, sz, rot, tx, ty, tz, attributes, ctx, path, state));
                     if (state.truncated) return result;
                 } else {
                     // 普通实体：应用仿射变换
-                    Geometry transformed = applyTransform(entity.geometry(), sx, sy, sz, rot, ix, iy, iz);
+                    Geometry transformed = applyTransform(entity.geometry(), sx, sy, sz, rot, tx, ty, tz);
                     if (transformed == null) continue;
 
                     CADEntity.Builder b = CADEntity.builder(entity.getType())

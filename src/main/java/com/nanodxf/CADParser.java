@@ -14,6 +14,9 @@ import org.locationtech.jts.geom.util.GeometryTransformer;
 import java.io.IOException;
 import java.io.Reader;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 import java.util.Spliterator;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -233,7 +236,13 @@ public class CADParser {
         ctx.entities.replaceAll(e -> scaleEntity(e, factor));
     }
 
-    /** 对单个实体的所有坐标乘以换算系数，同时更新 elevation 属性。 */
+    /** 长度类 Double 属性（坐标单位），随几何同步换算；角度/比例类属性不换算。 */
+    private static final Set<String> LENGTH_PROPS = Set.of(
+            EntityProperty.ELEVATION, EntityProperty.RADIUS, EntityProperty.HEIGHT,
+            EntityProperty.MTEXT_WIDTH, EntityProperty.MAJOR_AXIS_X,
+            EntityProperty.MAJOR_AXIS_Y, EntityProperty.MLINE_SCALE);
+
+    /** 对单个实体的所有坐标乘以换算系数，同时换算长度类属性。 */
     private static CADEntity scaleEntity(CADEntity entity, double factor) {
         if (entity.geometry() == null) return entity;
 
@@ -254,11 +263,43 @@ public class CADParser {
 
         CADEntity result = entity.withGeometry(scaled);
 
-        // elevation 属性与 Z 坐标同步换算
-        Object elev = result.getProperties().get("elevation");
-        if (elev instanceof Number n) {
-            result = result.withProperty("elevation", n.doubleValue() * factor);
+        for (String key : LENGTH_PROPS) {
+            Object v = result.getProperties().get(key);
+            if (v instanceof Number n) {
+                result = result.withProperty(key, n.doubleValue() * factor);
+            }
+        }
+        result = scalePointProp(result, EntityProperty.DIM_POINT1, factor);
+        result = scalePointProp(result, EntityProperty.DIM_POINT2, factor);
+
+        // SPLINE 控制点（List<double[]>，每元素 [x, y, z]）
+        Object cp = result.getProperties().get(EntityProperty.CONTROL_POINTS);
+        if (cp instanceof List<?> pts) {
+            List<double[]> scaledPts = new ArrayList<>(pts.size());
+            for (Object o : pts) {
+                double[] q = ((double[]) o).clone();
+                for (int i = 0; i < q.length; i++) q[i] *= factor;
+                scaledPts.add(q);
+            }
+            result = result.withProperty(EntityProperty.CONTROL_POINTS, scaledPts);
+        }
+
+        // 标注实测值：线性/直径/半径/坐标标注为长度，角度标注（类型 2/5）为度，不换算
+        Object dv = result.getProperties().get(EntityProperty.DIMENSION_VALUE);
+        Object dt = result.getProperties().get(EntityProperty.DIMENSION_TYPE);
+        boolean angular = dt instanceof Integer t && ((t & 7) == 2 || (t & 7) == 5);
+        if (dv instanceof Number n && !angular) {
+            result = result.withProperty(EntityProperty.DIMENSION_VALUE, n.doubleValue() * factor);
         }
         return result;
+    }
+
+    /** 换算 double[2] 形式的点属性（dimPoint1/dimPoint2）。 */
+    private static CADEntity scalePointProp(CADEntity entity, String key, double factor) {
+        Object v = entity.getProperties().get(key);
+        if (v instanceof double[] p && p.length >= 2) {
+            return entity.withProperty(key, new double[]{p[0] * factor, p[1] * factor});
+        }
+        return entity;
     }
 }

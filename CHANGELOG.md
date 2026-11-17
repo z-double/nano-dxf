@@ -5,6 +5,16 @@
 
 ---
 
+## [1.8.1] - 2026-11-17
+
+### 修复
+
+- **Shapefile 多边形环向与 ESRI 规范相反**：`ShapefileWriter` 此前强制外环逆时针（CCW）、内环顺时针（CW），而 ESRI Shapefile 规范要求外环顺时针（CW）、洞逆时针（CCW）。严格按规范读取的软件会把外环误判为洞。现已纠正环向及注释。
+- **单位换算遗漏长度类属性**：`$INSUNITS` 非米时，`CADParser` 只换算几何坐标与 `elevation`，`height`、`radius`、`mtextWidth`、`majorAxisX/Y`、`mlineScale`、`dimPoint1/2`、`controlPoints`、`dimensionValue` 仍留在原单位（毫米图纸解析后圆心是米、字高仍是毫米）。现长度类属性随几何同步换算；角度标注（类型 2/5）的实测值为度，不换算。
+- **INSERT 展开忽略块基点**：`InsertHandler` 的仿射变换未扣除 BLOCK 头部基点（code 10/20/30），基点非零的块展开后整体偏移。现按 `插入点 + R·S·(实体坐标 − 块基点)` 变换，嵌套 INSERT 逐层正确组合。
+
+---
+
 ## [1.8.0] - 2026-10-29
 
 ### 修复

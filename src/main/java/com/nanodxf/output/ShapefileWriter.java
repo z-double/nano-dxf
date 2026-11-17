@@ -225,10 +225,10 @@ public class ShapefileWriter {
 
     private void collectPolygonParts(Geometry geom, List<Coordinate[]> parts) {
         if (geom instanceof Polygon poly) {
-            // Shapefile: exterior CCW, holes CW
-            parts.add(ensureWinding(poly.getExteriorRing().getCoordinates(), true));
+            // ESRI Shapefile 规范：外环顺时针（CW），内环（洞）逆时针（CCW）
+            parts.add(ensureWinding(poly.getExteriorRing().getCoordinates(), false));
             for (int i = 0; i < poly.getNumInteriorRing(); i++)
-                parts.add(ensureWinding(poly.getInteriorRingN(i).getCoordinates(), false));
+                parts.add(ensureWinding(poly.getInteriorRingN(i).getCoordinates(), true));
         } else if (geom instanceof MultiPolygon mp) {
             for (int i = 0; i < mp.getNumGeometries(); i++)
                 collectPolygonParts(mp.getGeometryN(i), parts);
@@ -240,7 +240,7 @@ public class ShapefileWriter {
 
     /**
      * 确保坐标序列为指定环绕方向（ccw=true 为逆时针，ccw=false 为顺时针）。
-     * Shapefile 规范：外环 CCW，内环（洞）CW。
+     * ESRI Shapefile 规范：外环 CW，内环（洞）CCW。
      */
     private Coordinate[] ensureWinding(Coordinate[] coords, boolean ccw) {
         boolean isCcw = isCounterClockwise(coords);

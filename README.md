@@ -10,7 +10,7 @@
 
 - **全主流实体解析**：LINE / ARC / CIRCLE / ELLIPSE / POINT / TEXT / MTEXT / LWPOLYLINE / POLYLINE / SPLINE / HATCH / INSERT / 3DFACE / SOLID / DIMENSION / LEADER / MULTILEADER / ATTDEF
 - **OCS/WCS 坐标变换**：自动应用任意轴算法（Arbitrary Axis Algorithm），正确还原三维/旋转实体坐标（v1.6.0）
-- **INSERT 块递归展开**：仿射变换（缩放 → 旋转 → 平移）、路径集合循环引用检测；单次展开受 `maxInsertEntities` 总量预算保护（v1.8.0，默认 10 万）
+- **INSERT 块递归展开**：仿射变换（缩放 → 旋转 → 平移，扣除块基点）、路径集合循环引用检测；单次展开受 `maxInsertEntities` 总量预算保护（v1.8.0，默认 10 万）
 - **国内测绘软件适配**：CASS / EPS / MapMatrix / MapGIS / SuperMap XDATA 地物编码提取，内置约 80 条 GB/T 20257 映射
 - **BYLAYER 颜色继承**：ACI 256 色表 → 图层颜色 → 实体颜色完整链路
 - **编码自适应**：UTF-8 BOM → juniversalchardet 检测 → 版本号推断 → GBK 兜底；支持 `ParseConfig.encoding(...)` 强制覆盖（v1.7.2）
@@ -40,7 +40,7 @@
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.8.0</version>
+    <version>1.8.1</version>
 </dependency>
 ```
 

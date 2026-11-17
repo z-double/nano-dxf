@@ -10,7 +10,7 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 
 - **All major entity types**: LINE / ARC / CIRCLE / ELLIPSE / POINT / TEXT / MTEXT / LWPOLYLINE / POLYLINE / SPLINE / HATCH / INSERT / 3DFACE / SOLID / DIMENSION / LEADER / MULTILEADER / ATTDEF / MLINE / WIPEOUT / IMAGE / TOLERANCE
 - **OCS/WCS coordinate transform**: Arbitrary Axis Algorithm, correctly restores 3D/rotated entity coordinates (v1.6.0)
-- **Recursive INSERT expansion**: affine transform (scale → rotate → translate), path-set cycle detection, per-INSERT entity budget `maxInsertEntities` (v1.8.0, default 100k)
+- **Recursive INSERT expansion**: affine transform (scale → rotate → translate, block base point subtracted), path-set cycle detection, per-INSERT entity budget `maxInsertEntities` (v1.8.0, default 100k)
 - **Chinese surveying software support**: CASS / EPS / MapMatrix / MapGIS / SuperMap XDATA feature code extraction, ~80 built-in GB/T 20257 mappings
 - **BYLAYER color inheritance**: ACI 256-color table → layer color → entity color full chain
 - **Auto encoding detection**: UTF-8 BOM → juniversalchardet → version inference → GBK fallback; `ParseConfig.encoding(...)` for explicit override (v1.7.2)
@@ -40,7 +40,7 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.8.0</version>
+    <version>1.8.1</version>
 </dependency>
 ```
 
