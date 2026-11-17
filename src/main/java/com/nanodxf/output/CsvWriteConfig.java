@@ -23,20 +23,24 @@ import java.util.List;
 public final class CsvWriteConfig {
 
     private final List<CsvField> fields;
+    private final List<String>   attributeKeys;
     private final char           delimiter;
     private final boolean        writeHeader;
     private final Charset        charset;
     private final String         noDataValue;
 
     private CsvWriteConfig(Builder b) {
-        this.fields      = Collections.unmodifiableList(b.fields);
-        this.delimiter   = b.delimiter;
-        this.writeHeader = b.writeHeader;
-        this.charset     = b.charset;
-        this.noDataValue = b.noDataValue;
+        this.fields        = Collections.unmodifiableList(b.fields);
+        this.attributeKeys = List.copyOf(b.attributeKeys);
+        this.delimiter     = b.delimiter;
+        this.writeHeader   = b.writeHeader;
+        this.charset       = b.charset;
+        this.noDataValue   = b.noDataValue;
     }
 
     public List<CsvField> getFields()    { return fields; }
+    /** 附加属性列键名（v1.9.0，取自 INSERT 展开的 ATTRIB tag-value），追加在固定列之后。 */
+    public List<String>   getAttributeKeys() { return attributeKeys; }
     public char           getDelimiter() { return delimiter; }
     public boolean        isWriteHeader(){ return writeHeader; }
     public Charset        getCharset()   { return charset; }
@@ -55,6 +59,7 @@ public final class CsvWriteConfig {
 
         private List<CsvField> fields      = Arrays.asList(
                 CsvField.X, CsvField.Y, CsvField.Z, CsvField.LAYER, CsvField.FEATURE_CODE);
+        private List<String>   attributeKeys = List.of();
         private char           delimiter   = ',';
         private boolean        writeHeader = true;
         private Charset        charset     = StandardCharsets.UTF_8;
@@ -62,6 +67,13 @@ public final class CsvWriteConfig {
 
         public Builder fields(CsvField... f)     { this.fields = Arrays.asList(f); return this; }
         public Builder fields(List<CsvField> f)  { this.fields = List.copyOf(f);   return this; }
+        /**
+         * 附加属性列（v1.9.0）：按 ATTRIB tag 展平为独立列，追加在固定列之后。
+         * 值取自 INSERT 展开注入的 {@code insertAttributes}（或兜底 {@code attributes}），
+         * 缺失时再尝试同名实体属性，仍无则输出 noDataValue。
+         */
+        public Builder attributeKeys(String... keys)   { this.attributeKeys = Arrays.asList(keys); return this; }
+        public Builder attributeKeys(List<String> keys){ this.attributeKeys = List.copyOf(keys);   return this; }
         public Builder delimiter(char d)         { this.delimiter   = d;    return this; }
         public Builder writeHeader(boolean w)    { this.writeHeader = w;    return this; }
         public Builder charset(Charset cs)       { this.charset     = cs;   return this; }

@@ -8,6 +8,7 @@ import org.locationtech.jts.geom.Point;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -60,11 +61,14 @@ public final class CsvWriter {
     public static void write(List<CADEntity> entities, Writer out,
                              CsvWriteConfig config) throws IOException {
         List<CsvField> fields = config.getFields();
+        List<String> attrKeys = config.getAttributeKeys();
         char sep = config.getDelimiter();
         String nd  = config.getNoDataValue();
 
         if (config.isWriteHeader()) {
-            writeRow(out, fields.stream().map(Enum::name).toList(), sep);
+            List<String> header = new ArrayList<>(fields.stream().map(Enum::name).toList());
+            header.addAll(attrKeys);
+            writeRow(out, header, sep);
         }
 
         for (CADEntity e : entities) {
@@ -80,7 +84,7 @@ public final class CsvWriter {
                     ? Double.NaN : centroid.getCoordinate().getZ();
 
             Map<String, Object> props = e.getProperties();
-            List<String> values = fields.stream().map(f -> switch (f) {
+            List<String> values = new ArrayList<>(fields.stream().map(f -> switch (f) {
                 case HANDLE       -> nvl(e.getHandle(), nd);
                 case LAYER        -> nvl(e.getLayer(), nd);
                 case TYPE         -> nvl(e.getType(), nd);
@@ -90,12 +94,28 @@ public final class CsvWriter {
                 case ELEVATION    -> fmtProp(props.get(EntityProperty.ELEVATION), nd);
                 case FEATURE_CODE -> fmtProp(props.get(EntityProperty.FEATURE_CODE), nd);
                 case COLOR        -> fmtProp(props.get(EntityProperty.COLOR_ACI), nd);
-            }).toList();
+            }).toList());
+
+            if (!attrKeys.isEmpty()) {
+                Map<?, ?> attrs = attributeMap(props);
+                for (String key : attrKeys) {
+                    Object v = attrs != null ? attrs.get(key) : null;
+                    if (v == null) v = props.get(key);
+                    values.add(v != null ? v.toString() : nd);
+                }
+            }
             writeRow(out, values, sep);
         }
     }
 
     // -------------------------------------------------------------------------
+
+    /** INSERT 展开注入的 ATTRIB tag-value（insertAttributes 优先，attributes 兜底）。 */
+    private static Map<?, ?> attributeMap(Map<String, Object> props) {
+        Object m = props.get("insertAttributes");
+        if (m == null) m = props.get("attributes");
+        return m instanceof Map<?, ?> map ? map : null;
+    }
 
     private static void writeRow(Writer out, List<String> cols, char sep) throws IOException {
         StringBuilder sb = new StringBuilder();

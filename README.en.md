@@ -29,6 +29,10 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 - **DEM construction + ASCII Grid output**: `DemBuilder` Delaunay TIN interpolation, `AscGridWriter` ESRI .asc format (v1.7.0)
 - **Slope / aspect analysis**: `SlopeAnalyzer` Horn's method 3×3 finite-difference neighborhood (v1.7.0)
 - **Sheet edge matching**: `SheetEdgeMatcher` — endpoint gap check along vertical/horizontal/arbitrary join edges (v1.7.0)
+- **CRS projection transform**: `CrsTransform` — Gauss-Krüger (3°/6° zones, auto zone-prefix detection) / UTM / Web Mercator ↔ lon/lat, CGCS2000 & WGS84 ellipsoids, pure Java (no projection library), batch geometry/entity transform (v1.9.0)
+- **Custom feature codes**: `FeatureCodeRegistry.register / loadCsv` — project-specific codes override the built-in GB/T 20257 table, auto-enriched during parsing (v1.9.0)
+- **Area report by feature code**: `AreaStats` — parcel count/area grouped by code, m²/mu/hectare conversion, text report + CSV export (v1.9.0)
+- **CSV attribute columns**: `CsvWriteConfig.attributeKeys` — flattens INSERT-expanded ATTRIB tags (parcel ID, owner, …) into dedicated columns (v1.9.0)
 
 ---
 
@@ -40,7 +44,7 @@ Pure Java, no third-party CAD dependencies. Auto-detects GBK / UTF-8 encoding. O
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.8.1</version>
+    <version>1.9.0</version>
 </dependency>
 ```
 
@@ -306,6 +310,66 @@ Common property keys (`EntityProperty.*`):
 | `elevation` | `Double` | Elevation (Z) from LWPOLYLINE / POINT code 38 |
 | `featureCode` | `String` | CASS / EPS XDATA feature code |
 | `featureType` | `String` | GB/T 20257 feature name |
+
+---
+
+## CRS Transform & Reports (v1.9.0)
+
+### CrsTransform: projected coordinates ↔ lon/lat
+
+Pure Java (Snyder series, mm-level accuracy within ±3.5° of the central meridian),
+no third-party projection library. Coordinate convention matches geometry:
+`easting` = X, `northing` = Y.
+
+```java
+// EPSG-driven: 4534–4554 (3° zones, no prefix), 4513–4533 (3° zones, prefixed),
+// 4491–4512 (6° zones, prefixed), 32601–32660/32701–32760 (UTM), 3857, 4326/4490
+double[] lonLat = CrsTransform.toGeographic(500000, 3320000, "EPSG:4545");
+double[] xy     = CrsTransform.fromGeographic(108.7, 30.2, "EPSG:4545");
+
+// Zone-prefixed easting (e.g. 36500000): zones 13–23 → 6°, zones 25–45 → 3°
+double[] ll = CrsTransform.toGeographicAuto(36500000, 3320000);
+
+// Explicit central meridian (CGCS2000, FE=500000, zone prefix auto-stripped)
+double[] ll2 = CrsTransform.toGeographic(500123, 3320000, 108);
+
+// Transform a whole drawing to WGS84 for GeoJSON output (Z preserved)
+List<CADEntity> wgs84 = CrsTransform.transformEntities(
+        result.getEntities(), "EPSG:4545", "EPSG:4326");
+```
+
+> CGCS2000 ↔ WGS84 is treated as the same datum (cm-level difference); no 7-parameter datum shift.
+
+### FeatureCodeRegistry: custom feature codes
+
+```java
+FeatureCodeRegistry.register("99901", "Custom building", "Building"); // overrides built-in on same code
+FeatureCodeRegistry.loadCsv(Path.of("codes.csv"));                    // code,name,category (UTF-8/GBK)
+// Register before parse(); featureType / featureCategory are enriched automatically
+FeatureCodeRegistry.clearCustom();                                    // restore built-in only
+```
+
+### AreaStats: area report by feature code
+
+```java
+Map<String, AreaStatRow> stats = AreaStats.compute(
+        result.getEntities(), result.getMetadata()); // area converted to m² via $INSUNITS
+System.out.println(AreaStats.summary(stats));        // code/name/count/m²/mu/hectare
+AreaStats.writeCsv(stats, Path.of("area_report.csv"));
+```
+
+Area sources: Polygon/MultiPolygon, closed LinearRing, closed LWPOLYLINE, HATCH collections.
+Entities without a code are grouped under `(无编码)`.
+
+### CsvWriter: ATTRIB attribute columns
+
+```java
+CsvWriteConfig cfg = CsvWriteConfig.builder()
+        .fields(CsvField.X, CsvField.Y, CsvField.FEATURE_CODE)
+        .attributeKeys("ParcelID", "Owner", "LandUse") // ATTRIB tags flattened into columns
+        .build();
+CsvWriter.write(result.getEntities(), Path.of("parcels.csv"), cfg);
+```
 
 ---
 

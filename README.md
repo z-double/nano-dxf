@@ -29,6 +29,10 @@
 - **DEM 构建 + ASCII Grid 输出**：`DemBuilder` Delaunay TIN 插值，`AscGridWriter` ESRI .asc 格式（v1.7.0）
 - **坡度/坡向分析**：`SlopeAnalyzer` Horn's method 3×3 邻域有限差分（v1.7.0）
 - **图幅接边检查**：`SheetEdgeMatcher` 线状要素端点竖直/水平/任意方向接边检查（v1.7.0）
+- **坐标投影换算**：`CrsTransform` 高斯克吕格（3°/6° 带、带号前缀自动识别）/ UTM / Web Mercator ↔ 经纬度，CGCS2000/WGS84 椭球，纯 Java 无投影库依赖，支持几何/实体批量转换（v1.9.0）
+- **自定义地物编码**：`FeatureCodeRegistry.register / loadCsv` 注册项目专用码，优先于内置 GB/T 20257 表，解析时自动富化（v1.9.0）
+- **按编码面积报表**：`AreaStats` 按地物编码汇总图斑数/面积，平方米/亩/公顷换算，文本报表 + CSV 导出（v1.9.0）
+- **CSV 属性列**：`CsvWriteConfig.attributeKeys` 将 INSERT 展开的 ATTRIB（宗地号/权利人等）展平为独立列（v1.9.0）
 
 ---
 
@@ -40,7 +44,7 @@
 <dependency>
     <groupId>io.github.z-double</groupId>
     <artifactId>nano-dxf</artifactId>
-    <version>1.8.1</version>
+    <version>1.9.0</version>
 </dependency>
 ```
 
@@ -381,6 +385,65 @@ CADEntity.builder(CADEntity.Types.TEXT)
     .property(EntityProperty.HEIGHT,    2.5)
     .property(EntityProperty.COLOR_ACI, AciColor.WHITE)
     .build();
+```
+
+---
+
+## 坐标投影换算与统计报表（v1.9.0）
+
+### CrsTransform：投影坐标 ↔ 经纬度
+
+纯 Java 实现（Snyder 级数，中央经线 ±3.5° 内毫米级精度），无第三方投影库。
+坐标约定与几何一致：`easting` = 东坐标（X），`northing` = 北坐标（Y）。
+
+```java
+// EPSG 驱动：4534–4554（3° 带无带号）、4513–4533（3° 带含带号）、
+// 4491–4512（6° 带含带号）、32601–32660/32701–32760（UTM）、3857、4326/4490
+double[] lonLat = CrsTransform.toGeographic(500000, 3320000, "EPSG:4545");
+double[] xy     = CrsTransform.fromGeographic(108.7, 30.2, "EPSG:4545");
+
+// 带号前缀 Y（如 36500000）自动识别：带号 13–23 按 6° 带，25–45 按 3° 带
+double[] ll = CrsTransform.toGeographicAuto(36500000, 3320000);
+
+// 指定中央经线（CGCS2000，FE=500000，含带号前缀自动剥离）
+double[] ll2 = CrsTransform.toGeographic(500123, 3320000, 108);
+
+// 整份图纸转 WGS84 后输出 GeoJSON（Z 值保留）
+List<CADEntity> wgs84 = CrsTransform.transformEntities(
+        result.getEntities(), "EPSG:4545", "EPSG:4326");
+```
+
+> CGCS2000 与 WGS84 互转视为同一基准（厘米级差异），不做七参数基准转换。
+
+### FeatureCodeRegistry：自定义地物编码
+
+```java
+FeatureCodeRegistry.register("99901", "自定义房屋", "建筑"); // 同码覆盖内置表
+FeatureCodeRegistry.loadCsv(Path.of("codes.csv"));          // 编码,名称,类别（UTF-8/GBK）
+// 在 parse() 之前注册，解析时自动富化 featureType / featureCategory
+FeatureCodeRegistry.clearCustom();                          // 恢复仅内置表
+```
+
+### AreaStats：按地物编码面积报表
+
+```java
+Map<String, AreaStatRow> stats = AreaStats.compute(
+        result.getEntities(), result.getMetadata()); // 面积按 $INSUNITS 换算为 m²
+System.out.println(AreaStats.summary(stats));        // 编码/名称/图斑数/m²/亩/公顷
+AreaStats.writeCsv(stats, Path.of("area_report.csv"));
+```
+
+面积来源：Polygon/MultiPolygon、闭合 LinearRing、闭合 LWPOLYLINE、HATCH 几何集合。
+无编码实体归入 `(无编码)` 分组。
+
+### CsvWriter：ATTRIB 属性列
+
+```java
+CsvWriteConfig cfg = CsvWriteConfig.builder()
+        .fields(CsvField.X, CsvField.Y, CsvField.FEATURE_CODE)
+        .attributeKeys("宗地号", "权利人", "地类")  // INSERT 展开的 ATTRIB tag 展平为列
+        .build();
+CsvWriter.write(result.getEntities(), Path.of("parcels.csv"), cfg);
 ```
 
 ---

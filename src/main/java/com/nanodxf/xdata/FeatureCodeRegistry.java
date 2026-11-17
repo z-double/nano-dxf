@@ -1,8 +1,15 @@
 package com.nanodxf.xdata;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * GB/T 20257 地物分类代码注册表（CASS / EPS / MapMatrix 均基于此标准）。
@@ -17,6 +24,9 @@ import java.util.Optional;
  *   <li>MapMatrix：应用名 "MAPMATRIX"，code 1000</li>
  *   <li>MapGIS：应用名 "MAPGIS"，code 1002</li>
  * </ul>
+ *
+ * <p>自定义编码（v1.9.0）：{@link #register} / {@link #registerAll} / {@link #loadCsv}
+ * 注册项目专用码，优先于内置表；{@link #clearCustom} 恢复为仅内置表。
  */
 public final class FeatureCodeRegistry {
 
@@ -399,15 +409,89 @@ public final class FeatureCodeRegistry {
     }
 
     /**
-     * 查询地物编码元信息。
+     * 查询地物编码元信息。自定义注册（{@link #register}）优先于内置表。
      *
      * @param code 地物编码字符串（如 "41000"）
      * @return 包含名称和类别的 info；未收录时返回 empty
      */
     public static Optional<FeatureCodeInfo> lookup(String code) {
+        FeatureCodeInfo custom = CUSTOM.get(code);
+        if (custom != null) return Optional.of(custom);
         return Optional.ofNullable(CODES.get(code));
     }
 
-    /** 当前注册的编码总数。 */
-    public static int size() { return CODES.size(); }
+    /** 当前注册的编码总数（内置 + 自定义，自定义覆盖内置同码时不重复计数）。 */
+    public static int size() {
+        int overlap = 0;
+        for (String code : CUSTOM.keySet()) if (CODES.containsKey(code)) overlap++;
+        return CODES.size() + CUSTOM.size() - overlap;
+    }
+
+    // -------------------------------------------------------------------------
+    // 自定义编码（v1.9.0）
+    // -------------------------------------------------------------------------
+
+    private static final Map<String, FeatureCodeInfo> CUSTOM = new ConcurrentHashMap<>();
+
+    /**
+     * 注册自定义地物编码（各地 CASS 自定义码、项目专用码）。
+     * 同码覆盖内置表；在 {@code CADParser.parse} 之前注册即可在解析时自动生效。
+     *
+     * @param code     编码（非空）
+     * @param name     地物名称（非空）
+     * @param category 所属大类（null/空白时记为 "自定义"）
+     */
+    public static void register(String code, String name, String category) {
+        if (code == null || code.isBlank()) throw new IllegalArgumentException("编码不能为空");
+        if (name == null || name.isBlank()) throw new IllegalArgumentException("地物名称不能为空");
+        String cat = (category == null || category.isBlank()) ? "自定义" : category;
+        CUSTOM.put(code.trim(), new FeatureCodeInfo(name, cat));
+    }
+
+    /** 批量注册自定义编码。 */
+    public static void registerAll(Map<String, FeatureCodeInfo> codes) {
+        codes.forEach((code, info) -> register(code, info.name(), info.category()));
+    }
+
+    /** 清空全部自定义编码，恢复为仅内置表。 */
+    public static void clearCustom() {
+        CUSTOM.clear();
+    }
+
+    /**
+     * 从 CSV 文件加载自定义编码（UTF-8）。每行 {@code 编码,名称,类别}，
+     * 类别可省略；{@code #} 开头为注释，空行跳过；首行若为表头
+     * （首列等于 "code" 或 "编码"）自动跳过。
+     *
+     * @return 成功加载的条数
+     */
+    public static int loadCsv(Path path) throws IOException {
+        return loadCsv(path, StandardCharsets.UTF_8);
+    }
+
+    /** 从 CSV 文件加载自定义编码（指定编码，如 GBK）。格式同 {@link #loadCsv(Path)}。 */
+    public static int loadCsv(Path path, Charset charset) throws IOException {
+        int loaded = 0;
+        try (BufferedReader br = Files.newBufferedReader(path, charset)) {
+            String line;
+            boolean first = true;
+            while ((line = br.readLine()) != null) {
+                String trimmed = line.trim();
+                if (trimmed.isEmpty() || trimmed.startsWith("#")) continue;
+                String[] cols = trimmed.split(",", -1);
+                String code = cols[0].trim();
+                if (first) {
+                    first = false;
+                    if (code.equalsIgnoreCase("code") || code.equals("编码")) continue;
+                }
+                if (cols.length < 2) continue;
+                String name = cols[1].trim();
+                String category = cols.length >= 3 ? cols[2].trim() : null;
+                if (code.isEmpty() || name.isEmpty()) continue;
+                register(code, name, category);
+                loaded++;
+            }
+        }
+        return loaded;
+    }
 }

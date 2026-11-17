@@ -5,6 +5,17 @@
 
 ---
 
+## [1.9.0] - 2026-11-17
+
+### 新增
+
+- **`CrsTransform` 坐标投影换算**（`com.nanodxf.crs`）：高斯克吕格 / UTM / Web Mercator 平面坐标 ↔ 经纬度，纯 Java 实现（Snyder 级数，中央经线 ±3.5° 内毫米级精度），无第三方投影库。支持 EPSG:4534–4554（CGCS2000 3° 带无带号）、4513–4533（3° 带含带号）、4491–4512（6° 带含带号）、32601–32660 / 32701–32760（UTM 北/南）、3857、4326/4490；带号前缀 Y（如 36500000）自动识别 3°/6° 带；`transformGeometry` / `transformEntities` 批量转换（Z 保留）。CGCS2000 与 WGS84 视为同一基准（厘米级差异）。
+- **`FeatureCodeRegistry` 自定义地物编码**：`register` / `registerAll` / `loadCsv`（UTF-8/GBK，支持表头与注释行）/ `clearCustom`。自定义码优先于内置 GB/T 20257 表，`parse()` 前注册即在解析富化链路自动生效。
+- **`AreaStats` 按地物编码面积报表**：按 `featureCode` 汇总图斑数量与总面积（Polygon/MultiPolygon、闭合 LinearRing、闭合 LWPOLYLINE、HATCH 集合），支持 `$INSUNITS` 换算为平方米，亩/公顷导出；`summary` 文本报表 + `writeCsv` CSV 导出；无编码实体归入 `(无编码)`。
+- **`CsvWriteConfig.attributeKeys`**：将 INSERT 展开注入的 ATTRIB tag-value（`insertAttributes`，兜底 `attributes` 与同名实体属性）展平为独立 CSV 列，追加在固定列之后，缺失输出 noDataValue。
+
+---
+
 ## [1.8.1] - 2026-11-17
 
 ### 修复
